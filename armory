@@ -1,0 +1,150 @@
+import React, { useState } from "react";
+import { Card, CardContent } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Badge } from "@/components/ui/badge";
+
+const DATA = [
+  {
+    category: "Snipers & Précision",
+    items: [
+      { name: "AWM", price: 4800, buyPrice: 396, buy: true },
+      { name: "AWP", price: 5113, buyPrice: 396, buy: false },
+      { name: "CARBON HUNT", price: 2400, buyPrice: 264, buy: true },
+      { name: "FUSIL M1", price: 2885, buyPrice: 132, buy: true },
+      { name: "HUNTER 85", price: 834, buyPrice: 165, buy: true },
+      { name: "KAR98K", price: 3360, buyPrice: null, buy: true },
+      { name: "M1881", price: 2800, buyPrice: null, buy: true },
+      { name: "SCAR-DMR", price: 7750, buyPrice: 165, buy: true },
+      { name: "SVD", price: 9764, buyPrice: 363, buy: true }
+    ]
+  },
+  {
+    category: "Fusils d’assaut",
+    items: [
+      { name: "AK-15", price: 3840, buyPrice: 198, buy: true },
+      { name: "AK-47", price: 5550, buyPrice: 231, buy: true },
+      { name: "AKM", price: 4378, buyPrice: null, buy: true },
+      { name: "AS VAL", price: 3210, buyPrice: 165, buy: true },
+      { name: "M16A4", price: 4068, buyPrice: 165, buy: true },
+      { name: "MK18", price: 3840, buyPrice: null, buy: true },
+      { name: "SCAR-L", price: 4226, buyPrice: null, buy: true },
+      { name: "VHS 2", price: 5084, buyPrice: 385, buy: true },
+      { name: "VSS VZ", price: 4769, buyPrice: null, buy: true }
+    ]
+  },
+  {
+    category: "SMG",
+    items: [
+      { name: "MP5", price: 2448, buyPrice: 165, buy: true },
+      { name: "MP5 SD", price: 2160, buyPrice: null, buy: true },
+      { name: "MP5 K", price: 2160, buyPrice: null, buy: true },
+      { name: "MAC-10", price: 2240, buyPrice: 165, buy: true },
+      { name: "UMP-45", price: 2240, buyPrice: 165, buy: true },
+      { name: "THOMSON", price: 3499, buyPrice: 314, buy: true }
+    ]
+  },
+  {
+    category: "LMG",
+    items: [
+      { name: "M249", price: 6421, buyPrice: 429, buy: true },
+      { name: "RPK", price: 5760, buyPrice: 363, buy: true }
+    ]
+  },
+  {
+    category: "Pistolets",
+    items: [
+      { name: "DEAGLE 357", price: 913, buyPrice: 115, buy: true },
+      { name: "DEAGLE 50", price: 1120, buyPrice: 115, buy: true },
+      { name: "DEAGLE OR", price: 2400, buyPrice: null, buy: true },
+      { name: "COLT", price: 480, buyPrice: 115, buy: true },
+      { name: "HS-9", price: 1075, buyPrice: 132, buy: true },
+      { name: "JUDGE 44", price: 916, buyPrice: null, buy: true }
+    ]
+  }
+];
+
+export default function App() {
+  const [orders, setOrders] = useState([]);
+  const [pseudo, setPseudo] = useState("");
+  const [selected, setSelected] = useState("");
+  const [qty, setQty] = useState(1);
+  const [admin, setAdmin] = useState(false);
+  const [pass, setPass] = useState("");
+
+  const login = () => {
+    if (pass === "sauce123") setAdmin(true);
+  };
+
+  const placeOrder = () => {
+    if (!pseudo || !selected) return;
+    setOrders([
+      { id: Date.now(), pseudo, item: selected, qty, status: "En attente" },
+      ...orders
+    ]);
+    setPseudo("");
+    setQty(1);
+  };
+
+  const updateStatus = (id, status) => {
+    setOrders(orders.map(o => (o.id === id ? { ...o, status } : o)));
+  };
+
+  return (
+    <div className="p-4 bg-black text-red-100 min-h-screen grid gap-6">
+
+      <div className="text-center text-3xl font-bold text-red-500">
+        🔫 SAUCE SANGUINE ARMORY 🔫
+        <p className="text-sm text-red-300">Marché noir néon - Apocalypse</p>
+      </div>
+
+      {!admin && (
+        <div className="flex gap-2">
+          <Input placeholder="Mot de passe admin" value={pass} onChange={e => setPass(e.target.value)} />
+          <Button onClick={login}>Entrer</Button>
+        </div>
+      )}
+
+      <Card className="bg-zinc-900 border-red-700">
+        <CardContent className="space-y-3">
+          <Input placeholder="Pseudo joueur" value={pseudo} onChange={e => setPseudo(e.target.value)} />
+
+          <select className="w-full p-2 text-black rounded" onChange={e => setSelected(e.target.value)}>
+            <option>Choisir un item</option>
+            {DATA.map(cat => (
+              <optgroup label={cat.category} key={cat.category}>
+                {cat.items.map(i => (
+                  <option key={i.name}>{i.name}</option>
+                ))}
+              </optgroup>
+            ))}
+          </select>
+
+          <Input type="number" value={qty} onChange={e => setQty(Number(e.target.value))} />
+
+          <Button className="bg-red-600 w-full" onClick={placeOrder}>
+            Commander au marché noir
+          </Button>
+        </CardContent>
+      </Card>
+
+      <Card className="bg-zinc-900 border-red-700">
+        <CardContent>
+          <h2 className="text-xl mb-3">📜 Commandes</h2>
+          {orders.map(o => (
+            <div key={o.id} className="flex justify-between border-b py-2">
+              <span>{o.pseudo} - {o.item} x{o.qty} ({o.status})</span>
+              {admin && (
+                <div className="flex gap-2">
+                  <Button onClick={() => updateStatus(o.id, "Acceptée")}>✔</Button>
+                  <Button onClick={() => updateStatus(o.id, "Refusée")}>✖</Button>
+                </div>
+              )}
+            </div>
+          ))}
+        </CardContent>
+      </Card>
+
+    </div>
+  );
+}
