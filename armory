@@ -1,0 +1,193 @@
+import { useState, useEffect } from "react";
+import { Card, CardContent } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+
+export default function ArmurerieApp() {
+  const [items, setItems] = useState(() => {
+    const saved = localStorage.getItem("items");
+    return saved
+      ? JSON.parse(saved)
+      : [
+          { name: "AK-47", price: 15000, stock: 10, buyRate: 0.5 },
+          { name: "M4", price: 12000, stock: 8, buyRate: 0.5 },
+        ];
+  });
+
+  const [orders, setOrders] = useState(() => {
+    const saved = localStorage.getItem("orders");
+    return saved ? JSON.parse(saved) : [];
+  });
+
+  const [pseudo, setPseudo] = useState("");
+  const [selectedItem, setSelectedItem] = useState("");
+  const [quantity, setQuantity] = useState(1);
+
+  useEffect(() => {
+    localStorage.setItem("items", JSON.stringify(items));
+  }, [items]);
+
+  useEffect(() => {
+    localStorage.setItem("orders", JSON.stringify(orders));
+  }, [orders]);
+
+  const placeOrder = () => {
+    if (!pseudo || !selectedItem) return;
+
+    const item = items.find((i) => i.name === selectedItem);
+    const total = item.price * quantity;
+
+    setOrders([
+      ...orders,
+      {
+        pseudo,
+        item: selectedItem,
+        quantity,
+        total,
+        status: "En attente",
+      },
+    ]);
+  };
+
+  const updateOrderStatus = (index, status) => {
+    const newOrders = [...orders];
+    const order = newOrders[index];
+
+    if (status === "Acceptée") {
+      const itemIndex = items.findIndex((i) => i.name === order.item);
+      if (items[itemIndex].stock >= order.quantity) {
+        items[itemIndex].stock -= order.quantity;
+      } else {
+        alert("Stock insuffisant");
+        return;
+      }
+    }
+
+    order.status = status;
+    setOrders(newOrders);
+  };
+
+  const updateStock = (index, value) => {
+    const newItems = [...items];
+    newItems[index].stock = value;
+    setItems(newItems);
+  };
+
+  const updatePrice = (index, value) => {
+    const newItems = [...items];
+    newItems[index].price = value;
+    setItems(newItems);
+  };
+
+  const updateBuyRate = (index, value) => {
+    const newItems = [...items];
+    newItems[index].buyRate = value;
+    setItems(newItems);
+  };
+
+  return (
+    <div className="p-6 grid gap-6 bg-black text-white min-h-screen">
+      <h1 className="text-3xl font-bold">🔫 Armurerie SCUM</h1>
+
+      {/* Commande joueur */}
+      <Card>
+        <CardContent className="p-4 space-y-3">
+          <h2 className="font-semibold">Commande joueur</h2>
+          <Input
+            placeholder="Pseudo en jeu"
+            value={pseudo}
+            onChange={(e) => setPseudo(e.target.value)}
+          />
+
+          <select
+            className="w-full p-2 text-black"
+            onChange={(e) => setSelectedItem(e.target.value)}
+          >
+            <option value="">Choisir une arme</option>
+            {items.map((item, i) => (
+              <option key={i} value={item.name}>
+                {item.name} - {item.price}$ (Stock: {item.stock})
+              </option>
+            ))}
+          </select>
+
+          <Input
+            type="number"
+            value={quantity}
+            onChange={(e) => setQuantity(Number(e.target.value))}
+          />
+
+          <Button onClick={placeOrder}>Commander</Button>
+        </CardContent>
+      </Card>
+
+      {/* Commandes admin */}
+      <Card>
+        <CardContent className="p-4 space-y-2">
+          <h2 className="font-semibold">Gestion des commandes</h2>
+          {orders.map((order, i) => (
+            <div key={i} className="flex justify-between items-center">
+              <span>
+                {order.pseudo} - {order.item} x{order.quantity} = {order.total}$ ({order.status})
+              </span>
+              <div className="space-x-2">
+                <Button onClick={() => updateOrderStatus(i, "Acceptée")}>
+                  ✔
+                </Button>
+                <Button onClick={() => updateOrderStatus(i, "Refusée")}>
+                  ✖
+                </Button>
+              </div>
+            </div>
+          ))}
+        </CardContent>
+      </Card>
+
+      {/* Gestion stock + prix */}
+      <Card>
+        <CardContent className="p-4 space-y-2">
+          <h2 className="font-semibold">Gestion armurerie</h2>
+          {items.map((item, i) => (
+            <div key={i} className="grid grid-cols-4 gap-2 items-center">
+              <span>{item.name}</span>
+
+              <Input
+                type="number"
+                value={item.price}
+                onChange={(e) => updatePrice(i, Number(e.target.value))}
+              />
+
+              <Input
+                type="number"
+                value={item.stock}
+                onChange={(e) => updateStock(i, Number(e.target.value))}
+              />
+
+              <Input
+                type="number"
+                step="0.1"
+                value={item.buyRate}
+                onChange={(e) => updateBuyRate(i, Number(e.target.value))}
+              />
+            </div>
+          ))}
+          <p className="text-sm text-gray-400">
+            buyRate = % de rachat joueur (ex: 0.5 = 50%)
+          </p>
+        </CardContent>
+      </Card>
+
+      {/* Calcul rachat joueur */}
+      <Card>
+        <CardContent className="p-4 space-y-3">
+          <h2 className="font-semibold">Calcul rachat joueur</h2>
+          {items.map((item, i) => (
+            <div key={i}>
+              {item.name} → {Math.round(item.price * item.buyRate)}$
+            </div>
+          ))}
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
