@@ -1,0 +1,86 @@
+body {
+  background: #0a0f0d;
+  color: #00ff9c;
+  font-family: "Orbitron", sans-serif;
+  margin: 0;
+  padding: 20px;
+}
+
+/* TITRES */
+h1, h2 {
+  text-shadow: 0 0 10px #00ff9c;
+}
+
+/* GRID */
+.grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 20px;
+}
+
+/* CARD */
+.card {
+  background: linear-gradient(145deg, #0f1a16, #050807);
+  border: 1px solid #00ff9c33;
+  border-radius: 12px;
+  padding: 15px;
+  width: 220px;
+  transition: 0.3s;
+  box-shadow: 0 0 10px #00ff9c22;
+}
+
+.card:hover {
+  transform: scale(1.05);
+  box-shadow: 0 0 20px #00ff9c;
+}
+
+/* INPUT */
+input, select {
+  background: #000;
+  border: 1px solid #00ff9c;
+  color: #00ff9c;
+  padding: 8px;
+  margin: 5px;
+  border-radius: 6px;
+}
+
+/* BUTTON */
+button {
+  background: black;
+  border: 1px solid #00ff9c;
+  color: #00ff9c;
+  padding: 6px 10px;
+  margin: 5px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: 0.2s;
+}
+
+button:hover {
+  background: #00ff9c;
+  color: black;
+  box-shadow: 0 0 10px #00ff9c;
+}
+
+/* STATUS */
+.status-pending {
+  color: orange;
+  text-shadow: 0 0 5px orange;
+}
+
+.status-done {
+  color: lime;
+  text-shadow: 0 0 5px lime;
+}
+
+/* ALERT */
+.alert {
+  background: red;
+  padding: 10px;
+  border-radius: 6px;
+  animation: blink 1s infinite;
+}
+
+@keyframes blink {
+  50% { opacity: 0.5; }
+}
