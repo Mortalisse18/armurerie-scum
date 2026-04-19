@@ -66,4 +66,42 @@ export async function getLogs() {
     id: d.id,
     ...d.data()
   }))
+}import {
+  runTransaction,
+  getDoc
+} from "firebase/firestore"
+
+export async function createOrderWithStock(data: any) {
+  await runTransaction(db, async (transaction) => {
+    for (const item of data.items) {
+      const ref = doc(db, "weapons", item.id)
+      const snap = await transaction.get(ref)
+
+      if (!snap.exists()) {
+        throw new Error("Article introuvable")
+      }
+
+      const current = Number(snap.data().stock || 0)
+
+      if (current < item.quantity) {
+        throw new Error(
+          `${item.name} stock insuffisant`
+        )
+      }
+
+      transaction.update(ref, {
+        stock: current - item.quantity,
+      })
+    }
+
+    const orderRef = doc(collection(db, "orders"))
+
+    transaction.set(orderRef, {
+      ...data,
+      status: "pending",
+      createdAt: serverTimestamp(),
+    })
+  })
+
+  await addLog(`Nouvelle commande de ${data.pseudo}`)
 }
