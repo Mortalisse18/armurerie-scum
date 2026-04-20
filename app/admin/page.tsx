@@ -49,6 +49,7 @@ export default function AdminPage() {
   const [stock, setStock] = useState("")
 
   const [search, setSearch] = useState("")
+  const [stockFilter, setStockFilter] = useState("all")
   const [notif, setNotif] = useState("")
   const [lastPending, setLastPending] = useState(0)
   const [clock, setClock] = useState("")
@@ -308,9 +309,12 @@ export default function AdminPage() {
     }
   }, [orders])
 
-  const filteredItems = items.filter((x: any) =>
-    x.name?.toLowerCase().includes(search.toLowerCase())
-  )
+  const filteredItems = items.filter((x: any) => {
+    const matchSearch = x.name?.toLowerCase().includes(search.toLowerCase())
+    const s = Number(x.stock || 0)
+    const matchStock = stockFilter === "all" ? true : stockFilter === "rupture" ? s === 0 : stockFilter === "faible" ? s > 0 && s <= 3 : s > 3
+    return matchSearch && matchStock
+  })
 
   const topClient = (() => {
     const map: any = {}
@@ -571,6 +575,17 @@ export default function AdminPage() {
                 setSearch(e.target.value)
               }
             />
+
+            <select
+              style={styles.input}
+              value={stockFilter}
+              onChange={(e) => setStockFilter(e.target.value)}
+            >
+              <option value="all">Tous stocks</option>
+              <option value="rupture">Rupture</option>
+              <option value="faible">Stock faible</option>
+              <option value="ok">Stock OK</option>
+            </select>
 
             <div style={styles.card}>
               <input
