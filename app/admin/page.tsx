@@ -60,6 +60,8 @@ export default function AdminPage() {
   const [newPseudo, setNewPseudo] = useState("")
   const [newCode, setNewCode] = useState("")
   const [newRole, setNewRole] = useState("moderator")
+  const [userRole, setUserRole] = useState("guest")
+  const [currentUser, setCurrentUser] = useState("")
   const [auctionItem, setAuctionItem] = useState("")
   const [auctionStep, setAuctionStep] = useState("100")
   const [auctionStart, setAuctionStart] = useState("1000")
@@ -67,7 +69,10 @@ export default function AdminPage() {
   const [rewardPercent, setRewardPercent] = useState("10")
 
   useEffect(() => {
+    loadAdmins()
     if (localStorage.getItem("admin-auth") === "ok") {
+      setUserRole(localStorage.getItem("admin-role") || "guest")
+      setCurrentUser(localStorage.getItem("admin-user") || "")
       setAuthOk(true)
     }
   }, [])
@@ -91,6 +96,13 @@ export default function AdminPage() {
 
     return () => clearInterval(t)
   }, [authOk])
+
+  async function loadAdmins() {
+    const snap = await getDocs(collection(db, "admins"))
+    setAdminUsers(
+      snap.docs.map((d) => ({ id: d.id, ...d.data() }))
+    )
+  }
 
   async function loadAll() {
     const allOrders = (await getOrders()) || []
@@ -137,8 +149,7 @@ export default function AdminPage() {
       setBannerUrl(bannerRef.data().url || "")
     }
 
-    const adminSnap = await getDocs(collection(db, "admins"))
-    setAdminUsers(adminSnap.docs.map((d) => ({ id:d.id, ...d.data() })))
+    await loadAdmins()
     const aucRef = await getDoc(doc(db,"settings","auction"))
     if(aucRef.exists()){const a:any=aucRef.data();setAuctionItem(a.item||"");setAuctionStep(String(a.step||100));setAuctionStart(String(a.start||1000))}
     const rewRef = await getDoc(doc(db,"settings","rewards"))
@@ -149,6 +160,10 @@ export default function AdminPage() {
     const found = adminUsers.find((u:any)=>u.pseudo===login && u.code===pass)
     if ((login === "admin" && pass === "Armory781228") || found) {
       localStorage.setItem("admin-auth", "ok")
+      localStorage.setItem("admin-role", found?.role || (login === "admin" ? "superadmin" : "admin"))
+      localStorage.setItem("admin-user", login)
+      setUserRole(found?.role || (login === "admin" ? "superadmin" : "admin"))
+      setCurrentUser(login)
       setAuthOk(true)
     } else {
       alert("Accès refusé")
@@ -156,6 +171,7 @@ export default function AdminPage() {
   }
 
   async function saveAdminUser() {
+    if(userRole === "moderator") return alert("Accès refusé")
     if (!newPseudo || !newCode) return
     await addDoc(collection(db,"admins"), { pseudo:newPseudo, code:newCode, role:newRole })
     setNewPseudo("")
@@ -170,6 +186,9 @@ export default function AdminPage() {
   async function saveRewards(){await setDoc(doc(db,"settings","rewards"),{orders:Number(rewardOrders),percent:Number(rewardPercent)});await addLog("Récompenses modifiées")}
 
   async function removeAdminUser(id:string) {
+    if(userRole !== "superadmin") return alert("Accès refusé")
+    const target = adminUsers.find((u:any)=>u.id===id)
+    if(target?.pseudo === "admin") return alert("Compte protégé")
     await deleteDoc(doc(db,"admins",id))
     await addLog("Compte admin/mod supprimé")
     loadAll()
@@ -177,6 +196,8 @@ export default function AdminPage() {
 
   function logout() {
     localStorage.removeItem("admin-auth")
+    localStorage.removeItem("admin-role")
+    localStorage.removeItem("admin-user")
     location.reload()
   }
 
@@ -426,9 +447,8 @@ export default function AdminPage() {
 
         <button style={styles.button} onClick={() => setTab("auction")}>💰 Enchères</button>
         <button style={styles.button} onClick={() => setTab("rewards")}>🎁 Réductions</button>
-        <button style={styles.button} onClick={() => setTab("users")}>
-          👮 Accès
-        </button>
+        {userRole !== "moderator" && <button style={styles.button} onClick={() => setTab("users")}>
+          👮 Accès</button>}
 
         <button
           style={styles.button}
