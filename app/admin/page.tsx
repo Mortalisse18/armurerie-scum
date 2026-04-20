@@ -1,8 +1,7 @@
-// /app/admin/page.tsx
 "use client"
 
 import { useEffect, useMemo, useState } from "react"
-import { db } from "@/lib/firebase"
+import { db, storage } from "@/lib/firebase"
 import {
   getOrders,
   getLogs,
@@ -10,6 +9,13 @@ import {
   updateOrderStatus,
   deleteOrder,
 } from "@/lib/firestore"
+
+import {
+  ref,
+  uploadBytes,
+  getDownloadURL,
+  deleteObject,
+} from "firebase/storage"
 
 import {
   collection,
@@ -45,11 +51,35 @@ export default function AdminPage() {
   const [search, setSearch] = useState("")
   const [notif, setNotif] = useState("")
   const [lastPending, setLastPending] = useState(0)
+  const [clock, setClock] = useState("")
+  const [bannerUrl, setBannerUrl] = useState("")
+  const [uploading, setUploading] = useState(false)
+  const [itemFileUploading, setItemFileUploading] = useState(false)
+  const [pulse, setPulse] = useState(true)
+  const [adminUsers, setAdminUsers] = useState<any[]>([])
+  const [newPseudo, setNewPseudo] = useState("")
+  const [newCode, setNewCode] = useState("")
+  const [newRole, setNewRole] = useState("moderator")
+  const [auctionItem, setAuctionItem] = useState("")
+  const [auctionStep, setAuctionStep] = useState("100")
+  const [auctionStart, setAuctionStart] = useState("1000")
+  const [rewardOrders, setRewardOrders] = useState("5")
+  const [rewardPercent, setRewardPercent] = useState("10")
 
   useEffect(() => {
     if (localStorage.getItem("admin-auth") === "ok") {
       setAuthOk(true)
     }
+  }, [])
+
+  useEffect(() => {
+    const fx = setInterval(() => setPulse((v) => !v), 900)
+    return () => clearInterval(fx)
+  }, [])
+
+  useEffect(() => {
+    const t = setInterval(() => setClock(new Date().toLocaleTimeString("fr-FR")),1000)
+    return () => clearInterval(t)
   }, [])
 
   useEffect(() => {
@@ -101,10 +131,23 @@ export default function AdminPage() {
       setPromoEnabled(Boolean(data.enabled))
       setPromo(Number(data.percent || 10))
     }
+
+    const bannerRef = await getDoc(doc(db, "settings", "banner"))
+    if (bannerRef.exists()) {
+      setBannerUrl(bannerRef.data().url || "")
+    }
+
+    const adminSnap = await getDocs(collection(db, "admins"))
+    setAdminUsers(adminSnap.docs.map((d) => ({ id:d.id, ...d.data() })))
+    const aucRef = await getDoc(doc(db,"settings","auction"))
+    if(aucRef.exists()){const a:any=aucRef.data();setAuctionItem(a.item||"");setAuctionStep(String(a.step||100));setAuctionStart(String(a.start||1000))}
+    const rewRef = await getDoc(doc(db,"settings","rewards"))
+    if(rewRef.exists()){const r:any=rewRef.data();setRewardOrders(String(r.orders||5));setRewardPercent(String(r.percent||10))}
   }
 
   function connect() {
-    if (login === "admin" && pass === "Armory781228") {
+    const found = adminUsers.find((u:any)=>u.pseudo===login && u.code===pass)
+    if ((login === "admin" && pass === "Armory781228") || found) {
       localStorage.setItem("admin-auth", "ok")
       setAuthOk(true)
     } else {
@@ -112,9 +155,65 @@ export default function AdminPage() {
     }
   }
 
+  async function saveAdminUser() {
+    if (!newPseudo || !newCode) return
+    await addDoc(collection(db,"admins"), { pseudo:newPseudo, code:newCode, role:newRole })
+    setNewPseudo("")
+    setNewCode("")
+    setNewRole("moderator")
+    await addLog("Compte admin/mod ajouté")
+    loadAll()
+  }
+
+  async function saveAuction(){await setDoc(doc(db,"settings","auction"),{item:auctionItem,step:Number(auctionStep),start:Number(auctionStart)});await addLog("Enchères modifiées")}
+
+  async function saveRewards(){await setDoc(doc(db,"settings","rewards"),{orders:Number(rewardOrders),percent:Number(rewardPercent)});await addLog("Récompenses modifiées")}
+
+  async function removeAdminUser(id:string) {
+    await deleteDoc(doc(db,"admins",id))
+    await addLog("Compte admin/mod supprimé")
+    loadAll()
+  }
+
   function logout() {
     localStorage.removeItem("admin-auth")
     location.reload()
+  }
+
+  async function uploadBanner(file: File) {
+    try {
+      setUploading(true)
+      const fileRef = ref(storage, `banners/${Date.now()}-${file.name}`)
+      await uploadBytes(fileRef, file)
+      const url = await getDownloadURL(fileRef)
+      await setDoc(doc(db, "settings", "banner"), { url })
+      setBannerUrl(url)
+      await addLog("Bannière modifiée")
+    } finally {
+      setUploading(false)
+    }
+  }
+
+  async function deleteBanner() {
+    await setDoc(doc(db, "settings", "banner"), { url: "" })
+    setBannerUrl("")
+    await addLog("Bannière supprimée")
+  }
+
+  async function uploadItemImage(file: File) {
+    try {
+      setItemFileUploading(true)
+      const fileRef = ref(storage, `weapons/${Date.now()}-${file.name}`)
+      await uploadBytes(fileRef, file)
+      const url = await getDownloadURL(fileRef)
+      setImage(url)
+    } finally {
+      setItemFileUploading(false)
+    }
+  }
+
+  function clearImage() {
+    setImage("")
   }
 
   async function savePromo() {
@@ -273,7 +372,10 @@ export default function AdminPage() {
   return (
     <main style={styles.page}>
       <aside style={styles.sidebar}>
-        <h2>⚙ ADMIN</h2>
+        <h2>☢ BUNKER ADMIN</h2>
+        <div style={{...styles.hud, boxShadow: pulse ? "0 0 18px rgba(0,255,204,.45)" : "0 0 4px rgba(0,255,204,.15)"}}>🕒 {clock}</div>
+        <div style={styles.radar}>📡 LIVE SYSTEM</div>
+        <div style={styles.statusBar}>DEFCON 1 • SECURE NODE • ONLINE</div>
 
         <button
           style={styles.button}
@@ -316,6 +418,21 @@ export default function AdminPage() {
         <button
           style={styles.button}
           onClick={() =>
+            setTab("banner")
+          }
+        >
+          🖼 Bannière
+        </button>
+
+        <button style={styles.button} onClick={() => setTab("auction")}>💰 Enchères</button>
+        <button style={styles.button} onClick={() => setTab("rewards")}>🎁 Réductions</button>
+        <button style={styles.button} onClick={() => setTab("users")}>
+          👮 Accès
+        </button>
+
+        <button
+          style={styles.button}
+          onClick={() =>
             setTab("logs")
           }
         >
@@ -339,9 +456,11 @@ export default function AdminPage() {
 
         {tab === "dashboard" && (
           <div>
-            <h1>Dashboard Luxe</h1>
+            <div style={{display:"flex",alignItems:"center",gap:14,marginBottom:10}}><h1 style={{margin:0}}>🩸 Armurerie Sauce Sanguine</h1><img src="/logo.png" alt="Logo serveur" style={{width:72,height:72,objectFit:"contain",filter:"drop-shadow(0 0 10px rgba(0,255,204,.45))"}} /></div>
 
             <div style={styles.grid}>
+              <div style={styles.card}><h3>🚨 Alertes</h3><p>{stats.pending > 0 ? `${stats.pending} commande(s)` : "RAS"}</p></div>
+              <div style={styles.card}><h3>📈 Revenus moyen</h3><p>{orders.length ? Math.round(stats.totalMoney / orders.length) : 0}$</p></div>
               <div style={styles.card}>
                 <h3>💰 Chiffre total</h3>
                 <p>
@@ -473,6 +592,26 @@ export default function AdminPage() {
               />
 
               <input
+                type="file"
+                accept="image/*"
+                onChange={(e) => {
+                  const file = e.target.files?.[0]
+                  if (file) uploadItemImage(file)
+                }}
+              />
+
+              {itemFileUploading && <p>Upload image...</p>}
+
+              {image && (
+                <div>
+                  <img src={image} style={{ width: 120, height: 120, objectFit: "cover", borderRadius: 10, border: "1px solid #00ffcc" }} />
+                  <div>
+                    <button style={styles.button} onClick={clearImage}>❌ Retirer image</button>
+                  </div>
+                </div>
+              )}
+
+              <input
                 style={styles.input}
                 placeholder="Stock"
                 value={stock}
@@ -504,9 +643,9 @@ export default function AdminPage() {
               (it: any) => (
                 <div
                   key={it.id}
-                  style={styles.card}
+                  style={{...styles.card, ...(Number(it.stock) === 0 ? styles.cardDanger : Number(it.stock) <= 3 ? styles.cardWarn : styles.cardOk)}}
                 >
-                  <b>{it.name}</b> —{" "}
+                  {it.image && (<img src={it.image} style={{width:72,height:72,objectFit:"cover",borderRadius:10,border:"1px solid #00ffcc",marginBottom:10}} />)}<b>{it.name}</b> — 
                   {it.price}$ —
                   Stock {it.stock} (
                   {stockBadge(
@@ -594,6 +733,72 @@ export default function AdminPage() {
           </div>
         )}
 
+        {tab === "banner" && (
+          <div>
+            <h1>Bannière Boutique</h1>
+            <input type="file" accept="image/*" onChange={(e) => {
+              const file = e.target.files?.[0]
+              if (file) uploadBanner(file)
+            }} />
+            {uploading && <p>Upload...</p>}
+            {bannerUrl && (
+              <>
+                <img src={bannerUrl} style={{ width:"100%", maxWidth:700, marginTop:20, borderRadius:12, border:"1px solid #00ffcc" }} />
+                <div>
+                  <button style={styles.button} onClick={deleteBanner}>🗑 Supprimer bannière</button>
+                </div>
+              </>
+            )}
+          </div>
+        )}
+
+        {tab === "auction" && (
+          <div>
+            <h1>Gestion Enchères</h1>
+            <div style={styles.card}>
+              <select style={styles.input} value={auctionItem} onChange={(e)=>setAuctionItem(e.target.value)}>
+                <option value="">Choisir un item</option>
+                {items.map((it:any)=><option key={it.id} value={it.id}>{it.name}</option>)}
+              </select>
+              <input style={styles.input} placeholder="Prix départ" value={auctionStart} onChange={(e)=>setAuctionStart(e.target.value)} />
+              <input style={styles.input} placeholder="Pas enchère" value={auctionStep} onChange={(e)=>setAuctionStep(e.target.value)} />
+              <button style={styles.button} onClick={saveAuction}>💾 Sauvegarder</button>
+            </div>
+          </div>
+        )}
+
+        {tab === "rewards" && (
+          <div>
+            <h1>Coupons Réduction</h1>
+            <div style={styles.card}>
+              <input style={styles.input} placeholder="Nb commandes" value={rewardOrders} onChange={(e)=>setRewardOrders(e.target.value)} />
+              <input style={styles.input} placeholder="Pourcentage %" value={rewardPercent} onChange={(e)=>setRewardPercent(e.target.value)} />
+              <button style={styles.button} onClick={saveRewards}>💾 Sauvegarder</button>
+            </div>
+          </div>
+        )}
+
+        {tab === "users" && (
+          <div>
+            <h1>Gestion Accès</h1>
+            <div style={styles.card}>
+              <input style={styles.input} placeholder="Pseudo" value={newPseudo} onChange={(e)=>setNewPseudo(e.target.value)} />
+              <input style={styles.input} placeholder="Code" value={newCode} onChange={(e)=>setNewCode(e.target.value)} />
+              <select style={styles.input} value={newRole} onChange={(e)=>setNewRole(e.target.value)}>
+                <option value="moderator">Modérateur</option>
+                <option value="admin">Admin</option>
+              </select>
+              <button style={styles.button} onClick={saveAdminUser}>➕ Ajouter accès</button>
+            </div>
+            {adminUsers.map((u:any)=>(
+              <div key={u.id} style={styles.card}>
+                <b>{u.pseudo}</b> — {u.role}
+                <button style={styles.button} onClick={()=>removeAdminUser(u.id)}>🗑 Supprimer</button>
+              </div>
+            ))}
+          </div>
+        )}
+
         {tab === "logs" && (
           <div>
             <h1>Logs</h1>
@@ -619,7 +824,7 @@ const styles: any = {
     display: "grid",
     gridTemplateColumns:
       "240px 1fr",
-    background: "#000",
+    background: "radial-gradient(circle at top, #1a1a1a 0%, #050505 55%, #000 100%)",
     color: "#00ffcc",
   },
 
@@ -633,14 +838,18 @@ const styles: any = {
 
   sidebar: {
     padding: 20,
+    alignContent:"start",
     borderRight:
       "1px solid #00ffcc",
+    boxShadow:"0 0 25px rgba(0,255,204,.15)",
     display: "grid",
     gap: 10,
   },
 
   content: {
     padding: 20,
+    backgroundImage:"linear-gradient(rgba(0,255,204,.03) 1px, transparent 1px), linear-gradient(90deg, rgba(0,255,204,.03) 1px, transparent 1px)",
+    backgroundSize:"24px 24px",
   },
 
   grid: {
@@ -652,8 +861,11 @@ const styles: any = {
   },
 
   card: {
+    backdropFilter:"blur(6px)",
     border:
       "1px solid #00ffcc",
+    background:"rgba(15,15,15,.88)",
+    boxShadow:"0 0 14px rgba(0,255,204,.12)",
     padding: 12,
     borderRadius: 10,
     marginBottom: 12,
@@ -670,6 +882,7 @@ const styles: any = {
   },
 
   button: {
+    fontWeight:"bold",
     padding:
       "10px 12px",
     background: "#000",
@@ -678,8 +891,17 @@ const styles: any = {
       "1px solid #00ffcc",
     borderRadius: 8,
     cursor: "pointer",
+    transition:"all .2s ease", transform:"translateZ(0)",
     margin: 4,
   },
+
+  hud:{padding:6,border:"1px solid #00ffcc",borderRadius:8,textAlign:"center",fontSize:11,marginBottom:8,maxWidth:170},
+  radar:{padding:6,border:"1px dashed #00ffcc",borderRadius:8,textAlign:"center",fontSize:11,opacity:.9,marginBottom:8,letterSpacing:1,maxWidth:170},
+  statusBar:{padding:6,border:"1px solid rgba(255,255,255,.12)",borderRadius:8,textAlign:"center",fontSize:10,marginBottom:8,color:"#9fffe8",background:"rgba(0,255,204,.06)",maxWidth:170},
+
+  cardOk:{border:"1px solid #00ffcc"},
+  cardWarn:{border:"2px solid orange",background:"rgba(255,165,0,.06)",boxShadow:"0 0 18px rgba(255,165,0,.28)"},
+  cardDanger:{border:"2px solid #ff3b3b",background:"rgba(255,0,0,.08)",boxShadow:"0 0 22px rgba(255,0,0,.35)"},
 
   notif: {
     padding: 12,
