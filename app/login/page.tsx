@@ -35,6 +35,7 @@ export default function LoginPage() {
         await register(email, password)
       }
 
+      localStorage.setItem("pseudo", pseudo)
       router.push("/shop")
     } catch (e: any) {
       setError("Erreur connexion")

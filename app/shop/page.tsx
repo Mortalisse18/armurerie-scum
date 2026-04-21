@@ -69,11 +69,15 @@ export default function ShopPage() {
     if (savedXp) setXp(Number(savedXp))
 
     const notifyLoop = setInterval(()=>setAlerts([`🔴 Stock mis à jour ${new Date().toLocaleTimeString()}`]),60000)
-    const user = auth.currentUser
-    if (user?.email) {
-      setPseudo(user.email.replace("@scum.local", ""))
-    }
-    return ()=>{clearInterval(notifyLoop);unsubChat()}
+    const unsubAuth = auth.onAuthStateChanged((user) => {
+      if (user?.email) {
+        setPseudo(user.email.replace("@scum.local", ""))
+      } else {
+        const savedPseudo = localStorage.getItem("pseudo")
+        if (savedPseudo) setPseudo(savedPseudo)
+      }
+    })
+    return ()=>{clearInterval(notifyLoop);unsubChat();unsubAuth()}
   }, [])
 
   async function loadWeapons() {

@@ -109,8 +109,8 @@ export default function AdminPage() {
     const unsub = onSnapshot(q,(snap)=>{
       const msgs = snap.docs.map((d)=>({id:d.id,...d.data()})).slice(-30)
       setChatMessages(msgs)
-      setStaffOnline(msgs.some((m:any)=>m.role !== "joueur"))
-      if(tab !== "chat") setChatUnread((v)=>v+1)
+      setStaffOnline(msgs.some((m:any)=>m.role !== "joueur" && Date.now() - Number(m.createdAt || 0) < 300000))
+      if (tab !== "chat" && msgs.length > chatMessages.length) setChatUnread((v)=>v+1)
     })
 
     return () => { clearInterval(t); unsub() }
@@ -217,7 +217,7 @@ export default function AdminPage() {
 
   async function sendChat(){
     if(!chatText.trim()) return
-    await addDoc(collection(db,"staffChat"),{user:currentUser,role:userRole,text:chatText,createdAt:Date.now()})
+    await addDoc(collection(db,"staffChat"),{user:currentUser || "Staff",role:userRole,text:chatText.trim().slice(0,300),createdAt:Date.now()})
     setChatText("")
     loadAll()
   }
@@ -881,8 +881,8 @@ export default function AdminPage() {
           <div>
             <h1>Chat Staff / Joueurs</h1>
             <div style={styles.card}>🟢 Connecté : {currentUser} ({userRole}) • {staffOnline ? "🟢 Support actif" : "⚫ Aucun staff actif"}</div>
-            <div style={{maxHeight:420,overflowY:"auto"}}>
-              {chatMessages.map((m:any)=>(
+            <div style={{maxHeight:420,overflowY:"auto",display:"flex",flexDirection:"column-reverse"}}>
+              {[...chatMessages].reverse().map((m:any)=>(
               <div key={m.id} style={{...styles.card,borderColor:m.role === "superadmin" ? "#ff4040" : m.role === "admin" ? "#ffaa00" : "#00ffcc"}}>
                 <b>{m.user}</b> [{m.role}] • {new Date(m.createdAt || Date.now()).toLocaleTimeString("fr-FR",{hour:"2-digit",minute:"2-digit"})}
                 <div style={{marginTop:6}}>{m.text}</div>
@@ -890,7 +890,7 @@ export default function AdminPage() {
             ))}
             </div>
             <div style={styles.card}>
-              <input style={styles.input} placeholder="Message..." value={chatText} onChange={(e)=>setChatText(e.target.value)} />
+              <input style={styles.input} placeholder="Message..." value={chatText} onChange={(e)=>setChatText(e.target.value)} onKeyDown={(e)=>{if(e.key==='Enter') sendChat()}} />
               <button style={styles.button} onClick={sendChat}>Envoyer</button>
             </div>
           </div>
