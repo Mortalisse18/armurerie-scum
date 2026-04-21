@@ -26,6 +26,9 @@ import {
   doc,
   getDoc,
   setDoc,
+  query,
+  orderBy,
+  onSnapshot,
 } from "firebase/firestore"
 
 export default function AdminPage() {
@@ -68,6 +71,14 @@ export default function AdminPage() {
   const [auctionStart, setAuctionStart] = useState("1000")
   const [rewardOrders, setRewardOrders] = useState("5")
   const [rewardPercent, setRewardPercent] = useState("10")
+  const [chatText, setChatText] = useState("")
+  const [chatMessages, setChatMessages] = useState<any[]>([])
+  const [chatUnread, setChatUnread] = useState(0)
+  const [staffOnline, setStaffOnline] = useState(false)
+
+  async function logAction(message:string){
+    await addLog(`${currentUser || "SYSTEM"} • ${message}`)
+  }
 
   useEffect(() => {
     loadAdmins()
@@ -94,9 +105,16 @@ export default function AdminPage() {
     loadAll()
 
     const t = setInterval(loadAll, 5000)
+    const q = query(collection(db,"staffChat"), orderBy("createdAt","asc"))
+    const unsub = onSnapshot(q,(snap)=>{
+      const msgs = snap.docs.map((d)=>({id:d.id,...d.data()})).slice(-30)
+      setChatMessages(msgs)
+      setStaffOnline(msgs.some((m:any)=>m.role !== "joueur"))
+      if(tab !== "chat") setChatUnread((v)=>v+1)
+    })
 
-    return () => clearInterval(t)
-  }, [authOk])
+    return () => { clearInterval(t); unsub() }
+  }, [authOk, tab])
 
   async function loadAdmins() {
     const snap = await getDocs(collection(db, "admins"))
@@ -151,6 +169,8 @@ export default function AdminPage() {
     }
 
     await loadAdmins()
+    const chatSnap = await getDocs(collection(db,"staffChat"))
+    setChatMessages(chatSnap.docs.map((d)=>({id:d.id,...d.data()})).slice(-20))
     const aucRef = await getDoc(doc(db,"settings","auction"))
     if(aucRef.exists()){const a:any=aucRef.data();setAuctionItem(a.item||"");setAuctionStep(String(a.step||100));setAuctionStart(String(a.start||1000))}
     const rewRef = await getDoc(doc(db,"settings","rewards"))
@@ -178,20 +198,27 @@ export default function AdminPage() {
     setNewPseudo("")
     setNewCode("")
     setNewRole("moderator")
-    await addLog("Compte admin/mod ajouté")
+    await logAction("Compte admin/mod ajouté")
     loadAll()
   }
 
-  async function saveAuction(){await setDoc(doc(db,"settings","auction"),{item:auctionItem,step:Number(auctionStep),start:Number(auctionStart)});await addLog("Enchères modifiées")}
+  async function saveAuction(){await setDoc(doc(db,"settings","auction"),{item:auctionItem,step:Number(auctionStep),start:Number(auctionStart)});await logAction("Enchères modifiées")}
 
-  async function saveRewards(){await setDoc(doc(db,"settings","rewards"),{orders:Number(rewardOrders),percent:Number(rewardPercent)});await addLog("Récompenses modifiées")}
+  async function saveRewards(){await setDoc(doc(db,"settings","rewards"),{orders:Number(rewardOrders),percent:Number(rewardPercent)});await logAction("Récompenses modifiées")}
 
   async function removeAdminUser(id:string) {
     if(userRole !== "superadmin") return alert("Accès refusé")
     const target = adminUsers.find((u:any)=>u.id===id)
     if(target?.pseudo === "admin") return alert("Compte protégé")
     await deleteDoc(doc(db,"admins",id))
-    await addLog("Compte admin/mod supprimé")
+    await logAction("Compte admin/mod supprimé")
+    loadAll()
+  }
+
+  async function sendChat(){
+    if(!chatText.trim()) return
+    await addDoc(collection(db,"staffChat"),{user:currentUser,role:userRole,text:chatText,createdAt:Date.now()})
+    setChatText("")
     loadAll()
   }
 
@@ -210,7 +237,7 @@ export default function AdminPage() {
       const url = await getDownloadURL(fileRef)
       await setDoc(doc(db, "settings", "banner"), { url })
       setBannerUrl(url)
-      await addLog("Bannière modifiée")
+      await logAction("Bannière modifiée")
     } finally {
       setUploading(false)
     }
@@ -219,7 +246,7 @@ export default function AdminPage() {
   async function deleteBanner() {
     await setDoc(doc(db, "settings", "banner"), { url: "" })
     setBannerUrl("")
-    await addLog("Bannière supprimée")
+    await logAction("Bannière supprimée")
   }
 
   async function uploadItemImage(file: File) {
@@ -244,7 +271,7 @@ export default function AdminPage() {
       percent: promo,
     })
 
-    await addLog("Promo modifiée")
+    await logAction("Promo modifiée")
     alert("Promo sauvegardée")
   }
 
@@ -268,10 +295,10 @@ export default function AdminPage() {
 
     if (editId) {
       await updateDoc(doc(db, "weapons", editId), payload)
-      await addLog("Item modifié")
+      await logAction("Item modifié")
     } else {
       await addDoc(collection(db, "weapons"), payload)
-      await addLog("Item ajouté")
+      await logAction("Item ajouté")
     }
 
     resetForm()
@@ -289,7 +316,7 @@ export default function AdminPage() {
 
   async function removeItem(id: string) {
     await deleteDoc(doc(db, "weapons", id))
-    await addLog("Item supprimé")
+    await logAction("Item supprimé")
     loadAll()
   }
 
@@ -451,8 +478,24 @@ export default function AdminPage() {
 
         <button style={styles.button} onClick={() => setTab("auction")}>💰 Enchères</button>
         <button style={styles.button} onClick={() => setTab("rewards")}>🎁 Réductions</button>
-        {userRole !== "moderator" && <button style={styles.button} onClick={() => setTab("users")}>
-          👮 Accès</button>}
+        {userRole !== "moderator" && (
+          <button
+            style={styles.button}
+            onClick={() => setTab("users")}
+          >
+            👮 Accès
+          </button>
+        )}
+
+        <button
+          style={styles.button}
+          onClick={() => {
+            setTab("chat")
+            setChatUnread(0)
+          }}
+        >
+          {`💬 Chat Staff${chatUnread > 0 ? ` (${chatUnread})` : ""}`}
+        </button>
 
         <button
           style={styles.button}
@@ -606,16 +649,16 @@ export default function AdminPage() {
                 }
               />
 
-              <input
+              <select
                 style={styles.input}
-                placeholder="Catégorie"
                 value={category}
-                onChange={(e) =>
-                  setCategory(
-                    e.target.value
-                  )
-                }
-              />
+                onChange={(e) => setCategory(e.target.value)}
+              >
+                <option value="">Catégorie</option>
+                {[...new Set(items.map((x:any) => x.category).filter(Boolean))].map((cat:any) => (
+                  <option key={cat} value={cat}>{cat}</option>
+                ))}
+              </select>
 
               <input
                 style={styles.input}
@@ -834,6 +877,25 @@ export default function AdminPage() {
           </div>
         )}
 
+        {tab === "chat" && (
+          <div>
+            <h1>Chat Staff / Joueurs</h1>
+            <div style={styles.card}>🟢 Connecté : {currentUser} ({userRole}) • {staffOnline ? "🟢 Support actif" : "⚫ Aucun staff actif"}</div>
+            <div style={{maxHeight:420,overflowY:"auto"}}>
+              {chatMessages.map((m:any)=>(
+              <div key={m.id} style={{...styles.card,borderColor:m.role === "superadmin" ? "#ff4040" : m.role === "admin" ? "#ffaa00" : "#00ffcc"}}>
+                <b>{m.user}</b> [{m.role}] • {new Date(m.createdAt || Date.now()).toLocaleTimeString("fr-FR",{hour:"2-digit",minute:"2-digit"})}
+                <div style={{marginTop:6}}>{m.text}</div>
+              </div>
+            ))}
+            </div>
+            <div style={styles.card}>
+              <input style={styles.input} placeholder="Message..." value={chatText} onChange={(e)=>setChatText(e.target.value)} />
+              <button style={styles.button} onClick={sendChat}>Envoyer</button>
+            </div>
+          </div>
+        )}
+
         {tab === "logs" && (
           <div>
             <h1>Logs</h1>
@@ -843,7 +905,7 @@ export default function AdminPage() {
                 key={l.id}
                 style={styles.card}
               >
-                {l.message}
+                <span>{l.message}</span>
               </div>
             ))}
           </div>

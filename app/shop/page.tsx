@@ -4,7 +4,7 @@
 
 import { useEffect, useMemo, useState } from "react"
 import { useRouter } from "next/navigation"
-import { getDocs, collection, doc, getDoc } from "firebase/firestore"
+import { getDocs, collection, doc, getDoc, addDoc, query, orderBy, onSnapshot } from "firebase/firestore"
 import { db } from "@/lib/firebase"
 import { auth, logout } from "@/lib/auth"
 import { createOrderWithStock } from "@/lib/firestore"
@@ -40,11 +40,25 @@ export default function ShopPage() {
   const [inventoryOpen, setInventoryOpen] = useState(false)
   
   const [alerts, setAlerts] = useState<string[]>([])
+  const [shopChatOpen, setShopChatOpen] = useState(false)
+  const [shopChatText, setShopChatText] = useState("")
+  const [shopChatMessages, setShopChatMessages] = useState<any[]>([])
+  const [chatUnread, setChatUnread] = useState(0)
+  const [staffOnline, setStaffOnline] = useState(false)
 
   useEffect(() => {
     loadWeapons()
     loadPromo()
     loadBanner()
+    loadShopChat()
+    const q = query(collection(db, "staffChat"), orderBy("createdAt", "asc"))
+    const unsubChat = onSnapshot(q, (snap) => {
+      const msgs = snap.docs.map((d)=>({id:d.id,...d.data()})).slice(-30)
+      setShopChatMessages(msgs)
+      const hasStaff = msgs.some((m:any)=>m.role !== "joueur")
+      setStaffOnline(hasStaff)
+      if(!shopChatOpen) setChatUnread(v=>v+1)
+    })
 
         
     const saved = localStorage.getItem("cart")
@@ -59,7 +73,7 @@ export default function ShopPage() {
     if (user?.email) {
       setPseudo(user.email.replace("@scum.local", ""))
     }
-    return ()=>{clearInterval(notifyLoop)}
+    return ()=>{clearInterval(notifyLoop);unsubChat()}
   }, [])
 
   async function loadWeapons() {
@@ -77,6 +91,19 @@ export default function ShopPage() {
     if (ref.exists()) {
       setBannerUrl(ref.data().url || "")
     }
+  }
+
+  async function loadShopChat(){
+    const snap = await getDocs(collection(db, "staffChat"))
+    setShopChatMessages(snap.docs.map((d)=>({id:d.id,...d.data()})).slice(-20))
+  }
+
+  async function sendShopChat(){
+    if(!shopChatText.trim()) return
+    const { addDoc } = await import("firebase/firestore")
+    await addDoc(collection(db,"staffChat"),{user:pseudo,role:"joueur",text:shopChatText,createdAt:Date.now()})
+    setShopChatText("")
+    loadShopChat()
   }
 
   async function loadPromo() {
@@ -306,6 +333,9 @@ export default function ShopPage() {
                         <button onClick={()=>setAuctionOpen(true)}>💰 Enchères</button>
             <button onClick={()=>setInventoryOpen(true)}>🎒 Inventaire</button>
             
+            <button onClick={() => { setShopChatOpen(true); setChatUnread(0) }}>
+              💬 Support {chatUnread > 0 ? `(${chatUnread})` : ""}
+            </button>
             <span>⭐ XP {xp}</span>
             {coupon > 0 && <span>🎁 Coupon -{coupon}%</span>}
           </div>
@@ -501,6 +531,19 @@ export default function ShopPage() {
         </div>
       )}
 
+      {shopChatOpen && (
+        <div className="drawer" style={{left:'20px',right:'auto',width:380,height:'70vh',top:'15vh'}}>
+          <h2>💬 Support Staff {staffOnline ? '🟢 En ligne' : '⚫ Hors ligne'}</h2>
+          <div style={{maxHeight:'48vh',overflowY:'auto'}}>
+            {shopChatMessages.map((m:any)=>(<div key={m.id} className="line" style={{display:'block',textAlign:'left'}}><b>{m.user}</b> [{m.role}]<br />{m.text}</div>))}
+          </div>
+          <input placeholder="Votre message..." value={shopChatText} onChange={(e)=>setShopChatText(e.target.value)} />
+          <button onClick={sendShopChat}>Envoyer</button>
+          <small style={{display:'block',marginTop:8,opacity:.8}}>Temps réel activé</small>
+          <button onClick={()=>setShopChatOpen(false)}>Fermer</button>
+        </div>
+      )}
+
       {cartOpen && (
         <div className="drawer">
           <h2>🛒 Panier Premium</h2>
@@ -601,9 +644,7 @@ export default function ShopPage() {
           flex-wrap: wrap;
         }
 
-        .actionsTop { align-items:center; }
         .actionsTop,
-
         .filters,
         .tabs {
           display: flex;
@@ -638,8 +679,8 @@ export default function ShopPage() {
           gap: 20px;
         }
 
-        .card,
-        .card:hover{transform:translateY(-3px);transition:.2s}
+        .card{transition:.2s}
+        .card:hover{transform:translateY(-3px)}
 
         .drawer {
           background: rgba(0,0,0,.78);
