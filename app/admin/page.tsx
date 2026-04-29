@@ -572,8 +572,18 @@ export default function AdminPage() {
                 key={o.id}
                 style={styles.card}
               >
-                <b>{o.pseudo}</b> — {o.total}$ —{" "}
-                {o.status}
+                <b>{o.pseudo}</b> — {o.total}$ — {o.status}
+
+                <div style={{marginTop:8,fontSize:14,opacity:.95}}>
+                  {o.items?.length ? (
+                    o.items.map((it:any,idx:number)=>(
+                      <div key={idx}>• {it.name} x{it.quantity}</div>
+                    ))
+                  ) : (
+                    <div>Aucun détail article</div>
+                  )}
+                  {o.priority && <div style={{marginTop:6}}>🚚 Priorité : {o.priority}</div>}
+                </div>
 
                 <div
                   style={{
