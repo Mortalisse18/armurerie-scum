@@ -2,11 +2,13 @@
 
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useState, useRef } from "react"
 import { useRouter } from "next/navigation"
 
 import { auth, logout } from "@/lib/auth"
+import { db } from "@/lib/firebase"
 import { getOrders } from "@/lib/firestore"
+import { collection, getDocs, query, where, updateDoc, doc } from "firebase/firestore"
 
 export default function ProfilePage() {
   const router = useRouter()
@@ -25,6 +27,9 @@ export default function ProfilePage() {
 
   const [notif, setNotif] =
     useState("")
+  const [replies, setReplies] =
+    useState<any[]>([])
+  const audioRef = useRef<any>(null)
 
   useEffect(() => {
     loadData()
@@ -101,6 +106,25 @@ export default function ProfilePage() {
       )
     }
 
+    const q = query(collection(db,"privateReplies"), where("pseudo","==",name))
+    const snap = await getDocs(q)
+    const msgs = snap.docs.map((d:any)=>({id:d.id,...d.data()})).reverse()
+    if(msgs.length > replies.length && replies.length > 0){
+      try { audioRef.current?.play() } catch {}
+    }
+    setReplies(msgs)
+
+    const unread = msgs.filter((x:any)=>!x.read).length
+    if(unread > 0){
+      setNotif(`🔔 ${unread} message(s) du staff`)
+    }
+
+    for(const m of msgs){
+      if(!m.read){
+        await updateDoc(doc(db,"privateReplies",m.id),{read:true})
+      }
+    }
+
     setOrders(mine)
     setLoading(false)
   }
@@ -161,6 +185,9 @@ export default function ProfilePage() {
 
   return (
     <main className="page">
+      <audio ref={audioRef} preload="auto">
+        <source src="/notif.mp3" type="audio/mpeg" />
+      </audio>
       <div className="box">
         {/* HEADER */}
         <div className="head">
@@ -229,6 +256,18 @@ export default function ProfilePage() {
               ).length
             }
           </div>
+        </div>
+
+        <h2>📩 Messages du Staff</h2>
+        <div className="list">
+          {replies.length === 0 && <p>Aucun message</p>}
+          {replies.map((r:any)=>(
+            <div key={r.id} className="card">
+              <div className="rowTop"><strong>👮 {r.admin}</strong><button className="mini">🔴</button></div>
+              <p>{r.message}</p>
+              <small>{formatDate(r.createdAt)}</small>
+            </div>
+          ))}
         </div>
 
         <h2>

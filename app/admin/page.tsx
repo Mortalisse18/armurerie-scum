@@ -77,6 +77,8 @@ export default function AdminPage() {
   const [chatMessages, setChatMessages] = useState<any[]>([])
   const [chatUnread, setChatUnread] = useState(0)
   const [staffOnline, setStaffOnline] = useState(false)
+  const [replyTarget, setReplyTarget] = useState("")
+  const [replyText, setReplyText] = useState("")
 
   async function logAction(message:string){
     await addLog(`${currentUser || "SYSTEM"} • ${message}`)
@@ -213,6 +215,14 @@ export default function AdminPage() {
     await deleteDoc(doc(db,"admins",id))
     await logAction("Compte admin/mod supprimé")
     loadAll()
+  }
+
+  async function sendPrivateReply(){
+    if(!replyTarget || !replyText.trim()) return
+    await addDoc(collection(db,"privateReplies"),{pseudo:replyTarget,message:replyText.trim().slice(0,300),admin:currentUser || "admin",createdAt:Date.now(),read:false})
+    setReplyText("")
+    setReplyTarget("")
+    alert("Réponse privée envoyée")
   }
 
   async function sendChat(){
@@ -877,9 +887,11 @@ export default function AdminPage() {
               <div key={m.id} style={{...styles.card,borderColor:m.role === "superadmin" ? "#ff4040" : m.role === "admin" ? "#ffaa00" : "#00ffcc"}}>
                 <b>{m.user}</b> [{m.role}] • {new Date(m.createdAt || Date.now()).toLocaleTimeString("fr-FR",{hour:"2-digit",minute:"2-digit"})}
                 <div style={{marginTop:6}}>{m.text}</div>
+                {m.role === "joueur" && <button style={styles.button} onClick={()=>setReplyTarget(m.user)}>📩 Répondre</button>}
               </div>
             ))}
             </div>
+            {replyTarget && <div style={styles.card}><h3>📩 Réponse privée à {replyTarget}</h3><input style={styles.input} placeholder="Votre réponse..." value={replyText} onChange={(e)=>setReplyText(e.target.value)} /><button style={styles.button} onClick={sendPrivateReply}>Envoyer réponse</button></div>}
             <div style={styles.card}>
               <input style={styles.input} placeholder="Message..." value={chatText} onChange={(e)=>setChatText(e.target.value)} onKeyDown={(e)=>{if(e.key==='Enter') sendChat()}} />
               <button style={styles.button} onClick={sendChat}>Envoyer</button>
