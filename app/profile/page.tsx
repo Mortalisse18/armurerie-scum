@@ -8,7 +8,7 @@ import { useRouter } from "next/navigation"
 import { auth, logout } from "@/lib/auth"
 import { db } from "@/lib/firebase"
 import { getOrders } from "@/lib/firestore"
-import { collection, getDocs, query, where, updateDoc, doc } from "firebase/firestore"
+import { collection, getDocs, query, where, updateDoc, doc, addDoc } from "firebase/firestore"
 
 export default function ProfilePage() {
   const router = useRouter()
@@ -30,6 +30,16 @@ export default function ProfilePage() {
   const [replies, setReplies] =
     useState<any[]>([])
   const audioRef = useRef<any>(null)
+  const [buybacks, setBuybacks] = useState<any[]>([])
+  const [sellItem, setSellItem] = useState("")
+  const [sellQty, setSellQty] = useState("1")
+  const [sellPrice, setSellPrice] = useState("0")
+  const SHOP_ITEMS:any[] = [
+    { name: "AK47", price: 20000 },
+    { name: "M4A1", price: 25000 },
+    { name: "MP5", price: 14000 },
+    { name: "9mm Ammo", price: 500 },
+  ]
 
   useEffect(() => {
     loadData()
@@ -125,8 +135,30 @@ export default function ProfilePage() {
       }
     }
 
+    const buySnap = await getDocs(query(collection(db,"buybackRequests"), where("pseudo","==",name)))
+    setBuybacks(buySnap.docs.map((d:any)=>({id:d.id,...d.data()})).reverse())
+
     setOrders(mine)
     setLoading(false)
+  }
+
+  async function sendSellRequest(){
+    if(!sellItem || Number(sellQty) <= 0) return
+    const selected = SHOP_ITEMS.find((x:any)=>x.name===sellItem)
+    const autoUnitPrice = Math.round(Number(selected?.price || 0) * 0.5)
+    await addDoc(collection(db,"buybackRequests"),{
+      pseudo,
+      item:sellItem,
+      quantity:Number(sellQty),
+      unitPrice:autoUnitPrice,
+      total:Number(sellQty) * autoUnitPrice,
+      status:"pending",
+      createdAt:Date.now(),
+    })
+    setSellItem("")
+    setSellQty("1")
+    setSellPrice("0")
+    setNotif("📦 Offre envoyée au staff")
   }
 
   async function handleLogout() {
@@ -256,6 +288,27 @@ export default function ProfilePage() {
               ).length
             }
           </div>
+        </div>
+
+        <h2>♻️ Vente de Stock au Shop</h2>
+        <div className="card">
+          <select value={sellItem} onChange={(e)=>setSellItem(e.target.value)}>
+            <option value="">Choisir un item</option>
+            {SHOP_ITEMS.map((it:any)=><option key={it.name} value={it.name}>{it.name}</option>)}
+          </select>
+          <input value={sellQty} onChange={(e)=>setSellQty(e.target.value)} placeholder="Quantité" />
+          <p>💵 Prix reprise unité : {Math.round(Number(SHOP_ITEMS.find((x:any)=>x.name===sellItem)?.price || 0) * 0.5)}$</p>
+          <p>💰 Total : {Number(sellQty||0) * Math.round(Number(SHOP_ITEMS.find((x:any)=>x.name===sellItem)?.price || 0) * 0.5)}$</p>
+          <button onClick={sendSellRequest}>Envoyer offre</button>
+        </div>
+
+        <div className="list">
+          {buybacks.map((b:any)=>(
+            <div key={b.id} className="card">
+              <div className="rowTop"><strong>{b.item} x{b.quantity}</strong><span>{b.status}</span></div>
+              <p>💰 {b.total}$</p>
+            </div>
+          ))}
         </div>
 
         <h2>📩 Messages du Staff</h2>
@@ -396,9 +449,8 @@ export default function ProfilePage() {
           align-items: center;
           padding: 20px;
           background:
-            url("/background.jpg")
-            center/cover
-            no-repeat;
+            radial-gradient(circle at top, rgba(0,255,204,0.08), transparent 35%),
+            url("/background.jpg") center/cover no-repeat;
         }
 
         .box {
@@ -406,16 +458,13 @@ export default function ProfilePage() {
           max-width: 100%;
           max-height: 92vh;
           overflow-y: auto;
-          background: rgba(
-            0,
-            0,
-            0,
-            0.84
-          );
+          background: linear-gradient(180deg, rgba(0,0,0,0.88), rgba(5,18,18,0.9));
+          box-shadow: 0 0 30px rgba(0,255,204,0.18);
           border: 1px solid
             #00ffcc;
-          border-radius: 14px;
+          border-radius: 18px;
           padding: 28px;
+          backdrop-filter: blur(8px);
           color: #00ffcc;
         }
 
@@ -429,6 +478,7 @@ export default function ProfilePage() {
         h1,
         h2 {
           margin: 0;
+          text-shadow: 0 0 12px rgba(0,255,204,0.25);
         }
 
         small {
@@ -445,8 +495,9 @@ export default function ProfilePage() {
           padding: 12px;
           text-align: center;
           border: 1px solid lime;
+          box-shadow: 0 0 18px rgba(0,255,0,0.18);
           color: lime;
-          border-radius: 10px;
+          border-radius: 12px;
           background: rgba(
             0,
             255,
@@ -473,12 +524,8 @@ export default function ProfilePage() {
             #00ffcc;
           border-radius: 10px;
           padding: 10px;
-          background: rgba(
-            0,
-            0,
-            0,
-            0.65
-          );
+          background: rgba(0,0,0,0.72);
+          box-shadow: inset 0 0 12px rgba(0,255,204,0.08);
         }
 
         .list {
@@ -489,16 +536,18 @@ export default function ProfilePage() {
         }
 
         .card {
+          transition: transform .18s ease, box-shadow .18s ease;
           border: 1px solid
             #00ffcc;
           border-radius: 10px;
           padding: 14px;
-          background: rgba(
-            0,
-            0,
-            0,
-            0.7
-          );
+          background: rgba(0,0,0,0.74);
+          box-shadow: 0 0 16px rgba(0,255,204,0.10);
+        }
+
+        .card:hover {
+          transform: translateY(-2px);
+          box-shadow: 0 0 22px rgba(0,255,204,0.22);
         }
 
         .rowTop {
@@ -549,6 +598,23 @@ export default function ProfilePage() {
             #00ffcc;
           border-radius: 8px;
           cursor: pointer;
+          font-weight: bold;
+          transition: all .18s ease;
+        }
+
+        button:hover {
+          background: #001a16;
+          box-shadow: 0 0 14px rgba(0,255,204,0.24);
+        }
+
+        select, input {
+          width: 100%;
+          padding: 10px;
+          margin-top: 8px;
+          background: #000;
+          color: #00ffcc;
+          border: 1px solid #00ffcc;
+          border-radius: 10px;
         }
 
         @media (max-width: 600px) {

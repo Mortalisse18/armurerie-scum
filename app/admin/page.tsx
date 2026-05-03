@@ -14,7 +14,7 @@ import {
   ref,
   uploadBytes,
   getDownloadURL,
-  deleteObject,
+  
 } from "firebase/storage"
 
 import {
@@ -79,6 +79,7 @@ export default function AdminPage() {
   const [staffOnline, setStaffOnline] = useState(false)
   const [replyTarget, setReplyTarget] = useState("")
   const [replyText, setReplyText] = useState("")
+  const [buybacks, setBuybacks] = useState<any[]>([])
 
   async function logAction(message:string){
     await addLog(`${currentUser || "SYSTEM"} • ${message}`)
@@ -177,6 +178,8 @@ export default function AdminPage() {
     if(aucRef.exists()){const a:any=aucRef.data();setAuctionItem(a.item||"");setAuctionStep(String(a.step||100));setAuctionStart(String(a.start||1000))}
     const rewRef = await getDoc(doc(db,"settings","rewards"))
     if(rewRef.exists()){const r:any=rewRef.data();setRewardOrders(String(r.orders||5));setRewardPercent(String(r.percent||10))}
+    const buySnap = await getDocs(collection(db,"buybackRequests"))
+    setBuybacks(buySnap.docs.map((d)=>({id:d.id,...d.data()})))
   }
 
   function connect() {
@@ -486,6 +489,7 @@ export default function AdminPage() {
 
         <button style={styles.button} onClick={() => setTab("auction")}>💰 Enchères</button>
         <button style={styles.button} onClick={() => setTab("rewards")}>🎁 Réductions</button>
+        <button style={styles.button} onClick={() => setTab("buybacks")}>♻️ Rachats</button>
         {userRole !== "moderator" && (
           <button
             style={styles.button}
@@ -854,6 +858,26 @@ export default function AdminPage() {
               <input style={styles.input} placeholder="Pourcentage %" value={rewardPercent} onChange={(e)=>setRewardPercent(e.target.value)} />
               <button style={styles.button} onClick={saveRewards}>💾 Sauvegarder</button>
             </div>
+          </div>
+        )}
+
+        {tab === "buybacks" && (
+          <div>
+            <h1>♻️ Rachat Stock Joueurs</h1>
+            <div style={styles.card}>💡 Prix de reprise verrouillé automatiquement à 50% du prix boutique. Le joueur ne choisit plus le prix.</div>
+            <div style={styles.card}>🧼 Formulaire Clean V4 côté joueur : sélection item + quantité uniquement. Le prix unitaire et le total sont calculés automatiquement.</div>
+            {buybacks.length === 0 && <div style={styles.card}>Aucune demande</div>}
+            {buybacks.map((b:any)=>(
+              <div key={b.id} style={styles.card}>
+                <b>{b.pseudo}</b> — {b.item} x{b.quantity} <span style={{opacity:.8}}>(50% auto)</span>
+                <div style={{marginTop:6}}>💰 {Math.round((Number(items.find((it:any)=>it.name?.toLowerCase()===String(b.item||'').toLowerCase())?.price || 0) * 0.5) * Number(b.quantity||0))}$ • Statut : {b.status}</div>
+                <div style={{marginTop:8}}>
+                  <button style={styles.button} onClick={async()=>{const match = items.find((it:any)=>it.name?.toLowerCase() === String(b.item||'').toLowerCase()); const payout = Math.round((Number(match?.price || 0) * 0.5) * Number(b.quantity||0)); if(match){await updateDoc(doc(db,"weapons",match.id),{stock:Number(match.stock||0)+Number(b.quantity||0)})} await updateDoc(doc(db,"buybackRequests",b.id),{status:"accepted"}); await addDoc(collection(db,"privateReplies"),{pseudo:b.pseudo,message:`Votre vente ${b.item} x${b.quantity} a été acceptée. Paiement: ${payout}$`,admin:currentUser || "admin",createdAt:Date.now(),read:false}); await logAction(`Rachat accepté ${b.pseudo} ${b.item} x${b.quantity}`); loadAll()}}>✅ Accepter</button>
+                  <button style={styles.button} onClick={async()=>{await updateDoc(doc(db,"buybackRequests",b.id),{status:"refused"}); await addDoc(collection(db,"privateReplies"),{pseudo:b.pseudo,message:`Votre vente ${b.item} x${b.quantity} a été refusée.`,admin:currentUser || "admin",createdAt:Date.now(),read:false}); await logAction(`Rachat refusé ${b.pseudo} ${b.item}`); loadAll()}}>❌ Refuser</button>
+                  <button style={styles.button} onClick={async()=>{await updateDoc(doc(db,"buybackRequests",b.id),{status:"pending"});loadAll()}}>⏳ Attente</button>
+                </div>
+              </div>
+            ))}
           </div>
         )}
 
