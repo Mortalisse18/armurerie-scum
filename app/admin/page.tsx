@@ -31,6 +31,8 @@ import {
   onSnapshot,
 } from "firebase/firestore"
 
+type OrderStatus = "pending" | "delivered" | "refused" | "done"
+
 export default function AdminPage() {
   const [authOk, setAuthOk] = useState(false)
   const [login, setLogin] = useState("")
@@ -131,9 +133,7 @@ export default function AdminPage() {
     setLogs(allLogs)
 
     // ✅ ERREUR TYPESCRIPT CORRIGÉE
-    const pendingCount = allOrders.filter(
-      (o: any) => o.status !== "done"
-    ).length
+    const pendingCount = allOrders.filter((o: any) => (o.status || "pending") === "pending").length
 
     if (pendingCount > lastPending && lastPending > 0) {
       setNotif("🔔 Nouvelle commande reçue !")
@@ -326,9 +326,7 @@ export default function AdminPage() {
       0
     )
 
-    const pending = orders.filter(
-      (o: any) => o.status !== "done"
-    ).length
+    const pending = orders.filter((o: any) => (o.status || "pending") === "pending").length
 
     return {
       totalMoney,
@@ -565,54 +563,37 @@ export default function AdminPage() {
 
         {tab === "orders" && (
           <div>
-            <h1>Commandes</h1>
-
-            {orders.map((o: any) => (
-              <div
-                key={o.id}
-                style={styles.card}
-              >
-                <b>{o.pseudo}</b> — {o.total}$ — {o.status}
-
-                <div style={{marginTop:8,fontSize:14,opacity:.95}}>
-                  {o.items?.length ? (
-                    o.items.map((it:any,idx:number)=>(
-                      <div key={idx}>• {it.name} x{it.quantity}</div>
-                    ))
-                  ) : (
-                    <div>Aucun détail article</div>
-                  )}
-                  {o.priority && <div style={{marginTop:6}}>🚚 Priorité : {o.priority}</div>}
+            <h1>Commandes PRO</h1>
+            {[
+              { key: 'pending', title: '📦 Commandes en attente' },
+              { key: 'delivered', title: '✅ Commandes validées' },
+              { key: 'refused', title: '❌ Commandes refusées' },
+            ].map((section:any) => {
+              const list = orders.filter((o:any) => (o.status || 'pending') === section.key)
+              return (
+                <div key={section.key} style={{marginBottom:24}}>
+                  <h2 style={{marginBottom:10}}>{section.title} ({list.length})</h2>
+                  {list.length === 0 && <div style={styles.card}>Aucune commande</div>}
+                  {list.map((o:any) => (
+                    <div key={o.id} style={styles.card}>
+                      <b>{o.pseudo || 'Joueur'}</b> — {o.total}$ — {(o.status || 'pending')}
+                      <div style={{marginTop:8,fontSize:14,opacity:.95}}>
+                        {o.items?.length ? o.items.map((it:any,idx:number)=><div key={idx}>• {it.name} x{it.quantity}</div>) : <div>Aucun détail article</div>}
+                        {o.priority && <div style={{marginTop:6}}>🚚 Priorité : {o.priority}</div>}
+                      </div>
+                      <div style={{marginTop:8}}>
+                        {section.key === 'pending' && <>
+                          <button style={styles.button} onClick={() => updateOrderStatus(o.id,'delivered' as any)}>✔ Livrer</button>
+                          <button style={styles.button} onClick={() => updateOrderStatus(o.id,'refused' as any)}>❌ Refuser</button>
+                        </>}
+                        {section.key !== 'pending' && <button style={styles.button} onClick={() => updateOrderStatus(o.id,'pending' as any)}>↩ Remettre attente</button>}
+                        <button style={styles.button} onClick={() => deleteOrder(o.id)}>🗑 Supprimer</button>
+                      </div>
+                    </div>
+                  ))}
                 </div>
-
-                <div
-                  style={{
-                    marginTop: 8,
-                  }}
-                >
-                  <button
-                    style={styles.button}
-                    onClick={() =>
-                      updateOrderStatus(
-                        o.id,
-                        "done"
-                      )
-                    }
-                  >
-                    ✔ Livrée
-                  </button>
-
-                  <button
-                    style={styles.button}
-                    onClick={() =>
-                      deleteOrder(o.id)
-                    }
-                  >
-                    ✖ Supprimer
-                  </button>
-                </div>
-              </div>
-            ))}
+              )
+            })}
           </div>
         )}
 
