@@ -929,8 +929,7 @@ export default function AdminPage() {
               <button style={styles.button} onClick={()=>setBuybackFilter("accepted")}>✅ Acceptés ({buybacks.filter((x:any)=>x.status==="accepted").length})</button>
               <button style={styles.button} onClick={()=>setBuybackFilter("refused")}>❌ Refusés ({buybacks.filter((x:any)=>x.status==="refused").length})</button>
             </div>
-            <div style={styles.card}>💡 Prix de reprise verrouillé automatiquement à 50% du prix boutique. Le joueur ne choisit plus le prix.</div>
-            <div style={styles.card}>🧼 Formulaire Clean V4 côté joueur : sélection item + quantité uniquement. Le prix unitaire et le total sont calculés automatiquement.</div>
+            
             {buybacks.filter((x:any)=>buybackFilter==="all" ? true : x.status===buybackFilter).length === 0 && <div style={styles.card}>Aucune demande</div>}
             {buybacks.filter((x:any)=>buybackFilter==="all" ? true : x.status===buybackFilter).map((b:any)=>(
               <div key={b.id} style={styles.card}>
