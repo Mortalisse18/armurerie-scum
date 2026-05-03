@@ -8,7 +8,7 @@ import { useRouter } from "next/navigation"
 import { auth, logout } from "@/lib/auth"
 import { db } from "@/lib/firebase"
 import { getOrders } from "@/lib/firestore"
-import { collection, getDocs, query, where, updateDoc, doc, addDoc } from "firebase/firestore"
+import { collection, getDocs, query, where, updateDoc, doc, addDoc, deleteDoc } from "firebase/firestore"
 
 export default function ProfilePage() {
   const router = useRouter()
@@ -167,6 +167,12 @@ export default function ProfilePage() {
     setNotif("📦 Offre envoyée au staff")
   }
 
+  async function deleteReply(id:string){
+    await deleteDoc(doc(db,"privateReplies",id))
+    setReplies((prev:any[])=>prev.filter((x:any)=>x.id!==id))
+    setNotif("🗑 Message supprimé")
+  }
+
   async function handleLogout() {
     await logout()
     router.push("/login")
@@ -323,7 +329,7 @@ export default function ProfilePage() {
           {replies.length === 0 && <p>Aucun message</p>}
           {replies.map((r:any)=>(
             <div key={r.id} className="card">
-              <div className="rowTop"><strong>👮 {r.admin}</strong><span className="dotPulse">🔴</span></div>
+              <div className="rowTop"><strong>👮 {r.admin}</strong><div style={{display:'flex',gap:'8px',alignItems:'center'}}><span className="dotPulse">🔴</span><button className="mini" onClick={()=>deleteReply(r.id)}>🗑</button></div></div>
               <p>{r.message}</p>
               <small>{formatDate(r.createdAt)}</small>
             </div>

@@ -81,6 +81,20 @@ export default function AdminPage() {
   const [replyTarget, setReplyTarget] = useState("")
   const [replyText, setReplyText] = useState("")
   const [buybacks, setBuybacks] = useState<any[]>([])
+  const [buybackFilter, setBuybackFilter] = useState("all")
+  const [buybackUnread, setBuybackUnread] = useState(0)
+  const [lastBuybackCount, setLastBuybackCount] = useState(0)
+  async function deleteBuyback(id:string){
+    await deleteDoc(doc(db,"buybackRequests",id))
+    await logAction("Rachat supprimé")
+    loadAll()
+  }
+  async function clearFinishedBuybacks(){
+    const finished = buybacks.filter((b:any)=>b.status==="accepted" || b.status==="refused")
+    for (const b of finished){ await deleteDoc(doc(db,"buybackRequests",b.id)) }
+    await logAction("Rachats terminés vidés")
+    loadAll()
+  }
 
   async function logAction(message:string){
     await addLog(`${currentUser || "SYSTEM"} • ${message}`)
@@ -180,7 +194,30 @@ export default function AdminPage() {
     const rewRef = await getDoc(doc(db,"settings","rewards"))
     if(rewRef.exists()){const r:any=rewRef.data();setRewardOrders(String(r.orders||5));setRewardPercent(String(r.percent||10))}
     const buySnap = await getDocs(collection(db,"buybackRequests"))
-    setBuybacks(buySnap.docs.map((d)=>({id:d.id,...d.data()})))
+    const liveBuybacks = buySnap.docs.map((d)=>({id:d.id,...d.data()}))
+    liveBuybacks.sort((a:any,b:any)=>{
+      const getItem=(n:any)=>items.find((it:any)=>it.name?.toLowerCase()===String(n||'').toLowerCase())||{}
+      const ia:any=getItem(a.item)
+      const ib:any=getItem(b.item)
+      const needA=Math.max(0, Number(ia.buybackLimit||3)-Number(ia.stock||0))
+      const needB=Math.max(0, Number(ib.buybackLimit||3)-Number(ib.stock||0))
+      const priA=Number(ia.stock||0)===0?3:Number(ia.stock||0)<=3?2:1
+      const priB=Number(ib.stock||0)===0?3:Number(ib.stock||0)<=3?2:1
+      const payA=Math.round((Number(ia.price||0)*0.5)*Number(a.quantity||0))
+      const payB=Math.round((Number(ib.price||0)*0.5)*Number(b.quantity||0))
+      if((a.status||'pending')!== (b.status||'pending')) return (a.status==='pending'?-1:1)
+      if(priA!==priB) return priB-priA
+      if(needA!==needB) return needB-needA
+      if(payA!==payB) return payB-payA
+      return Number(a.createdAt||0)-Number(b.createdAt||0)
+    })
+    setBuybacks(liveBuybacks)
+    const pendingBuy = liveBuybacks.filter((x:any)=>x.status==="pending").length
+    if(pendingBuy > lastBuybackCount && lastBuybackCount > 0){
+      setNotif("🔔 Nouvelle demande de rachat !")
+      if(tab !== "buybacks") setBuybackUnread((v)=>v+1)
+    }
+    setLastBuybackCount(pendingBuy)
   }
 
   function connect() {
@@ -390,6 +427,14 @@ export default function AdminPage() {
     }
   }).length
 
+  const buybackAccepted = buybacks.filter((b:any)=>b.status === "accepted")
+  const totalBuybackPaid = buybackAccepted.reduce((sum:number,b:any)=>{
+    const match:any = items.find((it:any)=>it.name?.toLowerCase()===String(b.item||"").toLowerCase()) || {}
+    return sum + Math.round((Number(match.price||0)*0.5)*Number(b.quantity||0))
+  },0)
+  const topSoldItem = (()=>{ const m:any={}; buybackAccepted.forEach((b:any)=>{m[b.item]=(m[b.item]||0)+Number(b.quantity||0)}); return Object.entries(m).sort((a:any,b:any)=>Number(b[1])-Number(a[1]))[0]?.[0] || "Aucun" })()
+  const topSupplier = (()=>{ const m:any={}; buybackAccepted.forEach((b:any)=>{m[b.pseudo]=(m[b.pseudo]||0)+1}); return Object.entries(m).sort((a:any,b:any)=>Number(b[1])-Number(a[1]))[0]?.[0] || "Aucun" })()
+
   const criticalStock = items.filter(
     (i: any) => Number(i.stock) <= 3
   ).length
@@ -493,7 +538,9 @@ export default function AdminPage() {
 
         <button style={styles.button} onClick={() => setTab("auction")}>💰 Enchères</button>
         <button style={styles.button} onClick={() => setTab("rewards")}>🎁 Réductions</button>
-        <button style={styles.button} onClick={() => setTab("buybacks")}>♻️ Rachats</button>
+        <button style={styles.button} onClick={() => { setTab("buybacks"); setBuybackUnread(0) }}>
+          {`♻️ Rachats${buybackUnread > 0 ? ` (${buybackUnread})` : ""}`}
+        </button>
         {userRole !== "moderator" && (
           <button
             style={styles.button}
@@ -571,10 +618,10 @@ export default function AdminPage() {
                 <p>{topClient}</p>
               </div>
 
-              <div style={styles.card}>
-                <h3>⚠ Stock critique</h3>
-                <p>{criticalStock}</p>
-              </div>
+              <div style={styles.card}><h3>⚠ Stock critique</h3><p>{criticalStock}</p></div>
+              <div style={styles.card}><h3>💸 Total rachats payés</h3><p>{totalBuybackPaid}$</p></div>
+              <div style={styles.card}><h3>📦 Item le + revendu</h3><p>{topSoldItem}</p></div>
+              <div style={styles.card}><h3>👑 Top fournisseur</h3><p>{topSupplier}</p></div>
             </div>
           </div>
         )}
@@ -875,17 +922,25 @@ export default function AdminPage() {
         {tab === "buybacks" && (
           <div>
             <h1>♻️ Rachat Stock Joueurs</h1>
+            <div style={styles.card}>
+              <button style={styles.button} onClick={()=>setBuybackFilter("all")}>Tous ({buybacks.length})</button>
+              <button style={styles.button} onClick={clearFinishedBuybacks}>🧹 Vider terminés</button>
+              <button style={styles.button} onClick={()=>setBuybackFilter("pending")}>⏳ En attente ({buybacks.filter((x:any)=>x.status==="pending").length})</button>
+              <button style={styles.button} onClick={()=>setBuybackFilter("accepted")}>✅ Acceptés ({buybacks.filter((x:any)=>x.status==="accepted").length})</button>
+              <button style={styles.button} onClick={()=>setBuybackFilter("refused")}>❌ Refusés ({buybacks.filter((x:any)=>x.status==="refused").length})</button>
+            </div>
             <div style={styles.card}>💡 Prix de reprise verrouillé automatiquement à 50% du prix boutique. Le joueur ne choisit plus le prix.</div>
             <div style={styles.card}>🧼 Formulaire Clean V4 côté joueur : sélection item + quantité uniquement. Le prix unitaire et le total sont calculés automatiquement.</div>
-            {buybacks.length === 0 && <div style={styles.card}>Aucune demande</div>}
-            {buybacks.map((b:any)=>(
+            {buybacks.filter((x:any)=>buybackFilter==="all" ? true : x.status===buybackFilter).length === 0 && <div style={styles.card}>Aucune demande</div>}
+            {buybacks.filter((x:any)=>buybackFilter==="all" ? true : x.status===buybackFilter).map((b:any)=>(
               <div key={b.id} style={styles.card}>
                 <b>{b.pseudo}</b> — {b.item} x{b.quantity} <span style={{opacity:.8}}>(50% auto)</span>
                 <div style={{marginTop:6}}>💰 {Math.round((Number(items.find((it:any)=>it.name?.toLowerCase()===String(b.item||'').toLowerCase())?.price || 0) * 0.5) * Number(b.quantity||0))}$ • Statut : {b.status}</div>
                 <div style={{marginTop:8}}>
-                  <button style={styles.button} onClick={async()=>{const match = items.find((it:any)=>it.name?.toLowerCase() === String(b.item||'').toLowerCase()); const payout = Math.round((Number(match?.price || 0) * 0.5) * Number(b.quantity||0)); if(match){await updateDoc(doc(db,"weapons",match.id),{stock:Number(match.stock||0)+Number(b.quantity||0)})} await updateDoc(doc(db,"buybackRequests",b.id),{status:"accepted"}); await addDoc(collection(db,"privateReplies"),{pseudo:b.pseudo,message:`Votre vente ${b.item} x${b.quantity} a été acceptée. Paiement: ${payout}$`,admin:currentUser || "admin",createdAt:Date.now(),read:false}); await logAction(`Rachat accepté ${b.pseudo} ${b.item} x${b.quantity}`); loadAll()}}>✅ Accepter</button>
-                  <button style={styles.button} onClick={async()=>{await updateDoc(doc(db,"buybackRequests",b.id),{status:"refused"}); await addDoc(collection(db,"privateReplies"),{pseudo:b.pseudo,message:`Votre vente ${b.item} x${b.quantity} a été refusée.`,admin:currentUser || "admin",createdAt:Date.now(),read:false}); await logAction(`Rachat refusé ${b.pseudo} ${b.item}`); loadAll()}}>❌ Refuser</button>
-                  <button style={styles.button} onClick={async()=>{await updateDoc(doc(db,"buybackRequests",b.id),{status:"pending"});loadAll()}}>⏳ Attente</button>
+                  <button style={styles.button} onClick={async()=>{const match = items.find((it:any)=>it.name?.toLowerCase() === String(b.item||'').toLowerCase()); const payout = Math.round((Number(match?.price || 0) * 0.5) * Number(b.quantity||0)); if(match){await updateDoc(doc(db,"weapons",match.id),{stock:Number(match.stock||0)+Number(b.quantity||0)})} await updateDoc(doc(db,"buybackRequests",b.id),{status:"accepted"}); await addDoc(collection(db,"privateReplies"),{pseudo:b.pseudo,message:`Votre vente ${b.item} x${b.quantity} a été acceptée. Paiement: ${payout}$`,admin:currentUser || "admin",createdAt:Date.now(),read:false}); await logAction(`Rachat accepté ${b.pseudo} ${b.item} x${b.quantity}`); setBuybacks(prev=>prev.map((x:any)=>x.id===b.id?{...x,status:"accepted"}:x))}}>✅ Accepter</button>
+                  <button style={styles.button} onClick={async()=>{await updateDoc(doc(db,"buybackRequests",b.id),{status:"refused"}); await addDoc(collection(db,"privateReplies"),{pseudo:b.pseudo,message:`Votre vente ${b.item} x${b.quantity} a été refusée.`,admin:currentUser || "admin",createdAt:Date.now(),read:false}); await logAction(`Rachat refusé ${b.pseudo} ${b.item}`); setBuybacks(prev=>prev.map((x:any)=>x.id===b.id?{...x,status:"refused"}:x))}}>❌ Refuser</button>
+                  <button style={styles.button} onClick={async()=>{await updateDoc(doc(db,"buybackRequests",b.id),{status:"pending"}); setBuybacks(prev=>prev.map((x:any)=>x.id===b.id?{...x,status:"pending"}:x))}}>⏳ Attente</button>
+                  <button style={styles.button} onClick={()=>deleteBuyback(b.id)}>🗑 Supprimer</button>
                 </div>
               </div>
             ))}
