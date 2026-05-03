@@ -1,1024 +1,779 @@
+// /app/shop/page.tsx
+
 "use client"
 
 import { useEffect, useMemo, useState } from "react"
-import { db, storage } from "@/lib/firebase"
-import {
-  getOrders,
-  getLogs,
-  addLog,
-  updateOrderStatus,
-  deleteOrder,
-} from "@/lib/firestore"
+import { useRouter } from "next/navigation"
+import { getDocs, collection, doc, getDoc, addDoc, query, orderBy, onSnapshot } from "firebase/firestore"
+import { db } from "@/lib/firebase"
+import { auth, logout } from "@/lib/auth"
+import { createOrderWithStock } from "@/lib/firestore"
 
-import {
-  ref,
-  uploadBytes,
-  getDownloadURL,
-  deleteObject,
-} from "firebase/storage"
+import type { Weapon } from "@/types/weapon"
+import type { CartItem } from "@/types/cart"
 
-import {
-  collection,
-  getDocs,
-  addDoc,
-  updateDoc,
-  deleteDoc,
-  doc,
-  getDoc,
-  setDoc,
-  query,
-  orderBy,
-  onSnapshot,
-} from "firebase/firestore"
+export default function ShopPage() {
+  const router = useRouter()
 
-export default function AdminPage() {
-  const [authOk, setAuthOk] = useState(false)
-  const [login, setLogin] = useState("")
-  const [pass, setPass] = useState("")
-  const [tab, setTab] = useState("dashboard")
-
-  const [orders, setOrders] = useState<any[]>([])
-  const [logs, setLogs] = useState<any[]>([])
-  const [items, setItems] = useState<any[]>([])
-
-  const [promoEnabled, setPromoEnabled] = useState(false)
-  const [promo, setPromo] = useState(10)
-
-  const [editId, setEditId] = useState("")
-  const [name, setName] = useState("")
-  const [price, setPrice] = useState("")
-  const [category, setCategory] = useState("")
-  const [image, setImage] = useState("")
-  const [stock, setStock] = useState("")
-
+  const [weapons, setWeapons] = useState<Weapon[]>([])
+  const [cart, setCart] = useState<CartItem[]>([])
   const [search, setSearch] = useState("")
-  const [stockFilter, setStockFilter] = useState("all")
+  const [category, setCategory] = useState("all")
+  const [sort, setSort] = useState("default")
+  const [priority, setPriority] = useState("low")
+  const [cartOpen, setCartOpen] = useState(false)
   const [notif, setNotif] = useState("")
-  const [lastPending, setLastPending] = useState(0)
-  const [clock, setClock] = useState("")
+  const [pseudo, setPseudo] = useState("Joueur")
+  const [promoEnabled, setPromoEnabled] = useState(false)
+  const [promoPercent, setPromoPercent] = useState(0)
   const [bannerUrl, setBannerUrl] = useState("")
-  const [uploading, setUploading] = useState(false)
-  const [itemFileUploading, setItemFileUploading] = useState(false)
-  const [pulse, setPulse] = useState(true)
-  const [adminUsers, setAdminUsers] = useState<any[]>([])
-  const [newPseudo, setNewPseudo] = useState("")
-  const [newCode, setNewCode] = useState("")
-  const [newRole, setNewRole] = useState("moderator")
-  const [userRole, setUserRole] = useState("guest")
-  const [currentUser, setCurrentUser] = useState("")
-  const [auctionItem, setAuctionItem] = useState("")
-  const [auctionStep, setAuctionStep] = useState("100")
-  const [auctionStart, setAuctionStart] = useState("1000")
-  const [rewardOrders, setRewardOrders] = useState("5")
-  const [rewardPercent, setRewardPercent] = useState("10")
-  const [chatText, setChatText] = useState("")
-  const [chatMessages, setChatMessages] = useState<any[]>([])
+  const [page, setPage] = useState(1)
+  const [favorites, setFavorites] = useState<string[]>([])
+  const [quickView, setQuickView] = useState<any>(null)
+    const [soundOn, setSoundOn] = useState(true)
+  const [historyOpen, setHistoryOpen] = useState(false)
+  const [xp, setXp] = useState(0)
+  const [coupon, setCoupon] = useState(0)
+  
+            const [leadersOpen, setLeadersOpen] = useState(false)
+  const [auctionOpen, setAuctionOpen] = useState(false)
+  const [inventoryOpen, setInventoryOpen] = useState(false)
+  
+  const [alerts, setAlerts] = useState<string[]>([])
+  const [shopChatOpen, setShopChatOpen] = useState(false)
+  const [shopChatText, setShopChatText] = useState("")
+  const [shopChatMessages, setShopChatMessages] = useState<any[]>([])
   const [chatUnread, setChatUnread] = useState(0)
   const [staffOnline, setStaffOnline] = useState(false)
 
-  async function logAction(message:string){
-    await addLog(`${currentUser || "SYSTEM"} • ${message}`)
-  }
-
   useEffect(() => {
-    loadAdmins()
-    if (localStorage.getItem("admin-auth") === "ok") {
-      setUserRole(localStorage.getItem("admin-role") || "guest")
-      setCurrentUser(localStorage.getItem("admin-user") || "")
-      setAuthOk(true)
-    }
-  }, [])
-
-  useEffect(() => {
-    const fx = setInterval(() => setPulse((v) => !v), 900)
-    return () => clearInterval(fx)
-  }, [])
-
-  useEffect(() => {
-    const t = setInterval(() => setClock(new Date().toLocaleTimeString("fr-FR")),1000)
-    return () => clearInterval(t)
-  }, [])
-
-  useEffect(() => {
-    if (!authOk) return
-
-    loadAll()
-
-    const t = setInterval(loadAll, 5000)
-    const q = query(collection(db,"staffChat"), orderBy("createdAt","asc"))
-    const unsub = onSnapshot(q,(snap)=>{
+    loadWeapons()
+    loadPromo()
+    loadBanner()
+    loadShopChat()
+    const q = query(collection(db, "staffChat"), orderBy("createdAt", "asc"))
+    const unsubChat = onSnapshot(q, (snap) => {
       const msgs = snap.docs.map((d)=>({id:d.id,...d.data()})).slice(-30)
-      setChatMessages(msgs)
-      setStaffOnline(msgs.some((m:any)=>m.role !== "joueur" && Date.now() - Number(m.createdAt || 0) < 300000))
-      if (tab !== "chat" && msgs.length > chatMessages.length) setChatUnread((v)=>v+1)
+      setShopChatMessages(msgs)
+      const hasStaff = msgs.some((m:any)=>m.role !== "joueur")
+      setStaffOnline(hasStaff)
+      if(!shopChatOpen) setChatUnread(v=>v+1)
     })
 
-    return () => { clearInterval(t); unsub() }
-  }, [authOk, tab])
+        
+    const saved = localStorage.getItem("cart")
+    if (saved) setCart(JSON.parse(saved))
+    const fav = localStorage.getItem("favorites")
+    if (fav) setFavorites(JSON.parse(fav))
+    const savedXp = localStorage.getItem("xp")
+    if (savedXp) setXp(Number(savedXp))
 
-  async function loadAdmins() {
-    const snap = await getDocs(collection(db, "admins"))
-    setAdminUsers(
-      snap.docs.map((d) => ({ id: d.id, ...d.data() }))
-    )
+    const notifyLoop = setInterval(()=>setAlerts([`🔴 Stock mis à jour ${new Date().toLocaleTimeString()}`]),60000)
+    const unsubAuth = auth.onAuthStateChanged((user) => {
+      if (user?.email) {
+        setPseudo(user.email.replace("@scum.local", ""))
+      } else {
+        const savedPseudo = localStorage.getItem("pseudo")
+        if (savedPseudo) setPseudo(savedPseudo)
+      }
+    })
+    return ()=>{clearInterval(notifyLoop);unsubChat();unsubAuth()}
+  }, [])
+
+  async function loadWeapons() {
+    const snap = await getDocs(collection(db, "weapons"))
+    const data = snap.docs.map((d) => ({
+      id: d.id,
+      ...d.data(),
+    })) as Weapon[]
+
+    setWeapons(data)
   }
 
-  async function loadAll() {
-    const allOrders = (await getOrders()) || []
-    setOrders(allOrders)
-
-    const allLogs = (await getLogs()) || []
-    setLogs(allLogs)
-
-    // ✅ ERREUR TYPESCRIPT CORRIGÉE
-    const pendingCount = allOrders.filter(
-      (o: any) => o.status !== "done"
-    ).length
-
-    if (pendingCount > lastPending && lastPending > 0) {
-      setNotif("🔔 Nouvelle commande reçue !")
-
-      setTimeout(() => {
-        setNotif("")
-      }, 5000)
+  async function loadBanner() {
+    const ref = await getDoc(doc(db, "settings", "banner"))
+    if (ref.exists()) {
+      setBannerUrl(ref.data().url || "")
     }
+  }
 
-    setLastPending(pendingCount)
+  async function loadShopChat(){
+    const snap = await getDocs(collection(db, "staffChat"))
+    setShopChatMessages(snap.docs.map((d)=>({id:d.id,...d.data()})).slice(-20))
+  }
 
-    const snap = await getDocs(collection(db, "weapons"))
+  async function sendShopChat(){
+    if(!shopChatText.trim()) return
+    const { addDoc } = await import("firebase/firestore")
+    await addDoc(collection(db,"staffChat"),{user:pseudo,role:"joueur",text:shopChatText,createdAt:Date.now()})
+    setShopChatText("")
+    loadShopChat()
+  }
 
-    setItems(
-      snap.docs.map((d) => ({
-        id: d.id,
-        ...d.data(),
-      }))
-    )
-
+  async function loadPromo() {
     const ref = await getDoc(doc(db, "settings", "promo"))
 
     if (ref.exists()) {
       const data: any = ref.data()
-
       setPromoEnabled(Boolean(data.enabled))
-      setPromo(Number(data.percent || 10))
-    }
-
-    const bannerRef = await getDoc(doc(db, "settings", "banner"))
-    if (bannerRef.exists()) {
-      setBannerUrl(bannerRef.data().url || "")
-    }
-
-    await loadAdmins()
-    const chatSnap = await getDocs(collection(db,"staffChat"))
-    setChatMessages(chatSnap.docs.map((d)=>({id:d.id,...d.data()})).slice(-20))
-    const aucRef = await getDoc(doc(db,"settings","auction"))
-    if(aucRef.exists()){const a:any=aucRef.data();setAuctionItem(a.item||"");setAuctionStep(String(a.step||100));setAuctionStart(String(a.start||1000))}
-    const rewRef = await getDoc(doc(db,"settings","rewards"))
-    if(rewRef.exists()){const r:any=rewRef.data();setRewardOrders(String(r.orders||5));setRewardPercent(String(r.percent||10))}
-  }
-
-  function connect() {
-    const found = adminUsers.find((u:any)=>u.pseudo===login && u.code===pass)
-    if ((login === "admin" && pass === "Armory781228") || found) {
-      localStorage.setItem("admin-auth", "ok")
-      localStorage.setItem("admin-role", found?.role || (login === "admin" ? "superadmin" : "admin"))
-      localStorage.setItem("admin-user", login)
-      setUserRole(found?.role || (login === "admin" ? "superadmin" : "admin"))
-      setCurrentUser(login)
-      setAuthOk(true)
-    } else {
-      alert("Accès refusé")
+      setPromoPercent(Number(data.percent || 0))
     }
   }
 
-  async function saveAdminUser() {
-    if(userRole === "moderator") return alert("Accès refusé")
-    if (!newPseudo || !newCode) return
-    await addDoc(collection(db,"admins"), { pseudo:newPseudo, code:newCode, role:newRole })
-    setNewPseudo("")
-    setNewCode("")
-    setNewRole("moderator")
-    await logAction("Compte admin/mod ajouté")
-    loadAll()
+  function getPrice(price: number) {
+    if (!promoEnabled) return price
+    return Math.round(price * (1 - promoPercent / 100))
   }
 
-  async function saveAuction(){await setDoc(doc(db,"settings","auction"),{item:auctionItem,step:Number(auctionStep),start:Number(auctionStart)});await logAction("Enchères modifiées")}
-
-  async function saveRewards(){await setDoc(doc(db,"settings","rewards"),{orders:Number(rewardOrders),percent:Number(rewardPercent)});await logAction("Récompenses modifiées")}
-
-  async function removeAdminUser(id:string) {
-    if(userRole !== "superadmin") return alert("Accès refusé")
-    const target = adminUsers.find((u:any)=>u.id===id)
-    if(target?.pseudo === "admin") return alert("Compte protégé")
-    await deleteDoc(doc(db,"admins",id))
-    await logAction("Compte admin/mod supprimé")
-    loadAll()
+  function saveCart(next: CartItem[]) {
+    setCart(next)
+    localStorage.setItem("cart", JSON.stringify(next))
   }
 
-  async function sendChat(){
-    if(!chatText.trim()) return
-    await addDoc(collection(db,"staffChat"),{user:currentUser || "Staff",role:userRole,text:chatText.trim().slice(0,300),createdAt:Date.now()})
-    setChatText("")
-    loadAll()
+  function toggleFavorite(id:string){
+    const next = favorites.includes(id)
+      ? favorites.filter(x=>x!==id)
+      : [...favorites,id]
+    setFavorites(next)
+    localStorage.setItem("favorites", JSON.stringify(next))
   }
 
-  function logout() {
-    localStorage.removeItem("admin-auth")
-    localStorage.removeItem("admin-role")
-    localStorage.removeItem("admin-user")
-    location.reload()
+  function playBeep(){
+    if(!soundOn || typeof window==='undefined') return
+    const ctx = new (window.AudioContext || (window as any).webkitAudioContext)()
+    const osc = ctx.createOscillator()
+    const gain = ctx.createGain()
+    osc.type='sine'; osc.frequency.value=880
+    osc.connect(gain); gain.connect(ctx.destination)
+    gain.gain.value=0.03
+    osc.start(); osc.stop(ctx.currentTime + 0.08)
   }
 
-  async function uploadBanner(file: File) {
-    try {
-      setUploading(true)
-      const fileRef = ref(storage, `banners/${Date.now()}-${file.name}`)
-      await uploadBytes(fileRef, file)
-      const url = await getDownloadURL(fileRef)
-      await setDoc(doc(db, "settings", "banner"), { url })
-      setBannerUrl(url)
-      await logAction("Bannière modifiée")
-    } finally {
-      setUploading(false)
-    }
+    function rarity(stock:number){
+    if(stock===0) return '☠️ Légendaire'
+    if(stock<=2) return '💎 Rare'
+    if(stock<=5) return '✨ Peu commun'
+    return '⚙️ Standard'
   }
 
-  async function deleteBanner() {
-    await setDoc(doc(db, "settings", "banner"), { url: "" })
-    setBannerUrl("")
-    await logAction("Bannière supprimée")
+      function notify(text: string) {
+    setNotif(text)
+    setTimeout(() => setNotif(""), 1800)
   }
 
-  async function uploadItemImage(file: File) {
-    try {
-      setItemFileUploading(true)
-      const fileRef = ref(storage, `weapons/${Date.now()}-${file.name}`)
-      await uploadBytes(fileRef, file)
-      const url = await getDownloadURL(fileRef)
-      setImage(url)
-    } finally {
-      setItemFileUploading(false)
-    }
-  }
+  function addToCart(item: Weapon) {
+    if (item.stock <= 0) return
 
-  function clearImage() {
-    setImage("")
-  }
+    const found = cart.find((x) => x.id === item.id)
+    const finalPrice = getPrice(item.price)
 
-  async function savePromo() {
-    await setDoc(doc(db, "settings", "promo"), {
-      enabled: promoEnabled,
-      percent: promo,
-    })
+    let next: CartItem[]
 
-    await logAction("Promo modifiée")
-    alert("Promo sauvegardée")
-  }
-
-  function resetForm() {
-    setEditId("")
-    setName("")
-    setPrice("")
-    setCategory("")
-    setImage("")
-    setStock("")
-  }
-
-  async function saveItem() {
-    const payload = {
-      name,
-      price: Number(price),
-      category,
-      image,
-      stock: Number(stock),
-    }
-
-    if (editId) {
-      await updateDoc(doc(db, "weapons", editId), payload)
-      await logAction("Item modifié")
-    } else {
-      await addDoc(collection(db, "weapons"), payload)
-      await logAction("Item ajouté")
-    }
-
-    resetForm()
-    loadAll()
-  }
-
-  function editItem(it: any) {
-    setEditId(it.id)
-    setName(it.name)
-    setPrice(String(it.price))
-    setCategory(it.category)
-    setImage(it.image)
-    setStock(String(it.stock))
-  }
-
-  async function removeItem(id: string) {
-    await deleteDoc(doc(db, "weapons", id))
-    await logAction("Item supprimé")
-    loadAll()
-  }
-
-  const stats = useMemo(() => {
-    const totalMoney = orders.reduce(
-      (sum, o: any) => sum + Number(o.total || 0),
-      0
-    )
-
-    const pending = orders.filter(
-      (o: any) => o.status !== "done"
-    ).length
-
-    return {
-      totalMoney,
-      pending,
-    }
-  }, [orders])
-
-  const filteredItems = items.filter((x: any) => {
-    const matchSearch = x.name?.toLowerCase().includes(search.toLowerCase())
-    const s = Number(x.stock || 0)
-    const matchStock = stockFilter === "all" ? true : stockFilter === "rupture" ? s === 0 : stockFilter === "faible" ? s > 0 && s <= 3 : s > 3
-    return matchSearch && matchStock
-  })
-
-  const topClient = (() => {
-    const map: any = {}
-
-    orders.forEach((o: any) => {
-      const n = o.pseudo || "Inconnu"
-      map[n] = (map[n] || 0) + 1
-    })
-
-    const sorted = Object.entries(map).sort(
-      (a: any, b: any) => Number(b[1]) - Number(a[1])
-    )
-
-    return sorted[0]?.[0] || "Aucun"
-  })()
-
-  const todayOrders = orders.filter((o: any) => {
-    try {
-      const d = new Date(
-        o.createdAt?.seconds
-          ? o.createdAt.seconds * 1000
-          : o.createdAt
+    if (found) {
+      next = cart.map((x) =>
+        x.id === item.id
+          ? { ...x, quantity: x.quantity + 1 }
+          : x
       )
+    } else {
+      next = [
+        ...cart,
+        {
+          ...item,
+          price: finalPrice,
+          quantity: 1,
+        },
+      ]
+    }
 
+    saveCart(next)
+    playBeep()
+    notify(`${item.name} ajouté`)
+  }
+
+  function plusQty(id: string) {
+    saveCart(
+      cart.map((x) =>
+        x.id === id
+          ? { ...x, quantity: x.quantity + 1 }
+          : x
+      )
+    )
+  }
+
+  function minusQty(id: string) {
+    saveCart(
+      cart
+        .map((x) =>
+          x.id === id
+            ? { ...x, quantity: x.quantity - 1 }
+            : x
+        )
+        .filter((x) => x.quantity > 0)
+    )
+  }
+
+  function removeItem(id: string) {
+    saveCart(cart.filter((x) => x.id !== id))
+  }
+
+  function clearCart() {
+    saveCart([])
+  }
+
+  async function validateOrder() {
+    if (cart.length === 0) return
+
+    try {
+      const realPseudo = pseudo && pseudo !== "Joueur"
+        ? pseudo
+        : localStorage.getItem("pseudo") || auth.currentUser?.email?.replace("@scum.local", "") || "Joueur"
+
+      await createOrderWithStock({
+        pseudo: realPseudo,
+        items: cart,
+        priority,
+        total,
+      })
+
+      clearCart()
+      const gain = Math.max(10, Math.round(total / 100))
+      const nextXp = xp + gain
+      setXp(nextXp)
+      localStorage.setItem("xp", String(nextXp))
+      setCoupon(nextXp >= 100 ? 5 : 0)
+      setCartOpen(false)
+      notify("Commande validée ✅")
+      loadWeapons()
+    } catch (err: any) {
+      alert(err.message)
+    }
+  }
+
+  async function handleLogout() {
+    await logout()
+    router.push("/login")
+  }
+
+  const perPage = 12
+
+  const filtered = useMemo(() => {
+    let list = [...weapons]
+
+    if (search.trim()) {
+      list = list.filter((w) =>
+        w.name.toLowerCase().includes(search.toLowerCase())
+      )
+    }
+
+    if (category !== "all") {
+      list = list.filter((w) =>
+        w.category?.toLowerCase().includes(category)
+      )
+    }
+
+    if (sort === "price-asc") {
+      list.sort((a, b) => getPrice(a.price) - getPrice(b.price))
+    }
+
+    if (sort === "price-desc") {
+      list.sort((a, b) => getPrice(b.price) - getPrice(a.price))
+    }
+
+    if (sort === "fav") {
+      list.sort((a,b)=> (favorites.includes(b.id as string)?1:0) - (favorites.includes(a.id as string)?1:0))
+    }
+
+    if (sort === "name") {
+      list.sort((a, b) => a.name.localeCompare(b.name))
+    }
+
+    return list
+  }, [weapons, search, category, sort, promoEnabled, promoPercent, favorites])
+
+  const paginated = filtered.slice((page - 1) * perPage, page * perPage)
+  const totalPages = Math.max(1, Math.ceil(filtered.length / perPage))
+
+  const itemsTotal = cart.reduce(
+    (sum, item) =>
+      sum + Number(item.price) * Number(item.quantity),
+    0
+  )
+
+  const priorityPrice =
+    priority === "medium"
+      ? 300
+      : priority === "high"
+      ? 600
+      : 0
+
+  const total = itemsTotal + priorityPrice
+
+  function stockBadge(stock: number) {
+    if (stock === 0)
+      return <span className="badge red">Rupture</span>
+
+    if (stock <= 3)
       return (
-        d.toDateString() ===
-        new Date().toDateString()
+        <span className="badge orange">
+          Stock faible
+        </span>
       )
-    } catch {
-      return false
-    }
-  }).length
 
-  const criticalStock = items.filter(
-    (i: any) => Number(i.stock) <= 3
-  ).length
-
-  function stockBadge(v: number) {
-    if (v === 0) return "Rupture"
-    if (v <= 3) return "Faible"
-    return "OK"
-  }
-
-  if (!authOk) {
     return (
-      <main style={styles.loginPage}>
-        <div style={styles.card}>
-          <h1>🔐 Admin</h1>
-
-          <input
-            style={styles.input}
-            placeholder="Login"
-            value={login}
-            onChange={(e) =>
-              setLogin(e.target.value)
-            }
-          />
-
-          <input
-            style={styles.input}
-            type="password"
-            placeholder="Code"
-            value={pass}
-            onChange={(e) =>
-              setPass(e.target.value)
-            }
-          />
-
-          <button
-            style={styles.button}
-            onClick={connect}
-          >
-            Connexion
-          </button>
-        </div>
-      </main>
+      <span className="badge green">
+        En stock
+      </span>
     )
   }
 
   return (
-    <main style={styles.page}>
-      <aside style={styles.sidebar}>
-        <h2>☢ BUNKER ADMIN</h2>
-        <div style={{...styles.hud, boxShadow: pulse ? "0 0 18px rgba(0,255,204,.45)" : "0 0 4px rgba(0,255,204,.15)"}}>🕒 {clock}</div>
-        <div style={styles.radar}>📡 LIVE SYSTEM</div>
-        <div style={styles.statusBar}>DEFCON 1 • SECURE NODE • ONLINE</div>
+    <main className="page">
+      <header className="top">
+        <div>
+          <h1>🛒 Boutique Armurerie</h1>
+          <small>Bienvenue {pseudo}</small>
+          <div style={{marginTop:8,display:'flex',gap:8,flexWrap:'wrap'}}>
+            <button onClick={()=>setSoundOn(!soundOn)}>{soundOn?'🔊 Son ON':'🔇 Son OFF'}</button>
+            
+            <button onClick={()=>setHistoryOpen(true)}>📜 Historique</button>
+                        <button onClick={()=>setLeadersOpen(true)}>🏆 Classement</button>
+                        <button onClick={()=>setAuctionOpen(true)}>💰 Enchères</button>
+            <button onClick={()=>setInventoryOpen(true)}>🎒 Inventaire</button>
+            
+            <button onClick={() => { setShopChatOpen(true); setChatUnread(0) }}>
+              💬 Support {chatUnread > 0 ? `(${chatUnread})` : ""}
+            </button>
+            <span>⭐ XP {xp}</span>
+            {coupon > 0 && <span>🎁 Coupon -{coupon}%</span>}
+          </div>
+        </div>
 
-        <button
-          style={styles.button}
-          onClick={() =>
-            setTab("dashboard")
-          }
-        >
-          📊 Dashboard
-        </button>
+        <div className="actionsTop eliteTop">
+          <button className="eliteBtn" onClick={() => router.push("/profile")}><span className="ico">👤</span><span>Profil</span></button>
 
-        <button
-          style={styles.button}
-          onClick={() =>
-            setTab("orders")
-          }
-        >
-          📦 Commandes
-          {stats.pending > 0 &&
-            ` (${stats.pending})`}
-        </button>
+          <button className="eliteBtn" onClick={handleLogout}><span className="ico">🚪</span><span>Logout</span></button>
 
-        <button
-          style={styles.button}
-          onClick={() =>
-            setTab("items")
-          }
-        >
-          🔫 Boutique
-        </button>
-
-        <button
-          style={styles.button}
-          onClick={() =>
-            setTab("promo")
-          }
-        >
-          💸 Promotions
-        </button>
-
-        <button
-          style={styles.button}
-          onClick={() =>
-            setTab("banner")
-          }
-        >
-          🖼 Bannière
-        </button>
-
-        <button style={styles.button} onClick={() => setTab("auction")}>💰 Enchères</button>
-        <button style={styles.button} onClick={() => setTab("rewards")}>🎁 Réductions</button>
-        {userRole !== "moderator" && (
-          <button
-            style={styles.button}
-            onClick={() => setTab("users")}
+          <button className="cartBtn eliteBtn"
+            onClick={() => setCartOpen(true)}
           >
-            👮 Accès
+            <span className="ico">🛒</span><span>{cart.length}</span>
           </button>
-        )}
+        </div>
+      </header>
 
-        <button
-          style={styles.button}
-          onClick={() => {
-            setTab("chat")
-            setChatUnread(0)
-          }}
-        >
-          {`💬 Chat Staff${chatUnread > 0 ? ` (${chatUnread})` : ""}`}
-        </button>
+      {bannerUrl && (
+        <div style={{ margin: "18px 0" }}>
+          <img
+            src={bannerUrl}
+            alt="Bannière"
+            style={{
+              width: "100%",
+              maxHeight: 380,
+              objectFit: "cover",
+              borderRadius: 14,
+              border: "1px solid #00ffcc",
+            }}
+          />
+        </div>
+      )}
 
-        <button
-          style={styles.button}
-          onClick={() =>
-            setTab("logs")
+      {alerts.map((a,i)=><div key={i} className="promoBar" style={{borderColor:'#00ffcc',background:'rgba(0,255,204,.1)'}}>{a}</div>)}
+      {notif && (
+        <div className="promoBar green">
+          {notif}
+        </div>
+      )}
+
+      
+      {promoEnabled && (
+        <div className="promoBar">
+          🔥 PROMO ACTIVE : -{promoPercent}%
+        </div>
+      )}
+
+      <section className="tabs">
+        {['all','armes','munition','accessoire','soin','vetement'].map((cat)=>(
+          <button key={cat} className={category===cat ? 'tab active':'tab'} onClick={()=>setCategory(cat)}>
+            {cat==='all'?'Toutes':cat==='armes'?'Armes':cat==='munition'?'Munitions':cat==='accessoire'?'Accessoires':cat==='soin'?'Soins':'Vêtements'}
+          </button>
+        ))}
+      </section>
+
+      <section className="filters">
+        <input
+          placeholder="Recherche..."
+          value={search}
+          onChange={(e) =>
+            setSearch(e.target.value)
+          }
+        />
+
+        <select
+          value={category}
+          onChange={(e) =>
+            setCategory(e.target.value)
           }
         >
-          📜 Logs
-        </button>
+          <option value="all">Toutes</option>
+          <option value="armes">Armes</option>
+          <option value="munition">Munitions</option>
+          <option value="accessoire">Accessoires</option>
+          <option value="soin">Soins</option>
+          <option value="vetement">Vêtements</option>
+        </select>
 
-        <button
-          style={styles.button}
-          onClick={logout}
+        <select
+          value={sort}
+          onChange={(e) =>
+            setSort(e.target.value)
+          }
         >
-          🚪 Logout
-        </button>
-      </aside>
+          <option value="default">Tri</option>
+          <option value="price-asc">
+            Prix ↑
+          </option>
+          <option value="price-desc">
+            Prix ↓
+          </option>
+          <option value="name">Nom</option>
+          <option value="fav">Favoris</option>
+        </select>
+      </section>
 
-      <section style={styles.content}>
-        {notif && (
-          <div style={styles.notif}>
-            {notif}
-          </div>
-        )}
+      <section className="grid">
+        {paginated.map((weapon) => {
+          const finalPrice =
+            getPrice(weapon.price)
 
-        {tab === "dashboard" && (
-          <div>
-            <div style={{display:"flex",alignItems:"center",gap:14,marginBottom:10}}><h1 style={{margin:0}}>🩸 Armurerie Sauce Sanguine</h1><img src="/logo.png" alt="Logo serveur" style={{width:72,height:72,objectFit:"contain",filter:"drop-shadow(0 0 10px rgba(0,255,204,.45))"}} /></div>
-
-            <div style={styles.grid}>
-              <div style={styles.card}><h3>🚨 Alertes</h3><p>{stats.pending > 0 ? `${stats.pending} commande(s)` : "RAS"}</p></div>
-              <div style={styles.card}><h3>📈 Revenus moyen</h3><p>{orders.length ? Math.round(stats.totalMoney / orders.length) : 0}$</p></div>
-              <div style={styles.card}>
-                <h3>💰 Chiffre total</h3>
-                <p>
-                  {stats.totalMoney} $
-                </p>
-              </div>
-
-              <div style={styles.card}>
-                <h3>📦 Total commandes</h3>
-                <p>{orders.length}</p>
-              </div>
-
-              <div style={styles.card}>
-                <h3>⏳ En attente</h3>
-                <p>{stats.pending}</p>
-              </div>
-
-              <div style={styles.card}>
-                <h3>📅 Aujourd’hui</h3>
-                <p>{todayOrders}</p>
-              </div>
-
-              <div style={styles.card}>
-                <h3>🏆 Top client</h3>
-                <p>{topClient}</p>
-              </div>
-
-              <div style={styles.card}>
-                <h3>⚠ Stock critique</h3>
-                <p>{criticalStock}</p>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {tab === "orders" && (
-          <div>
-            <h1>Commandes</h1>
-
-            {orders.map((o: any) => (
-              <div
-                key={o.id}
-                style={styles.card}
-              >
-                <b>{o.pseudo}</b> — {o.total}$ — {o.status}
-
-                <div style={{marginTop:8,fontSize:14,opacity:.95}}>
-                  {o.items?.length ? (
-                    o.items.map((it:any,idx:number)=>(
-                      <div key={idx}>• {it.name} x{it.quantity}</div>
-                    ))
-                  ) : (
-                    <div>Aucun détail article</div>
-                  )}
-                  {o.priority && <div style={{marginTop:6}}>🚚 Priorité : {o.priority}</div>}
-                </div>
-
-                <div
-                  style={{
-                    marginTop: 8,
-                  }}
-                >
-                  <button
-                    style={styles.button}
-                    onClick={() =>
-                      updateOrderStatus(
-                        o.id,
-                        "done"
-                      )
-                    }
-                  >
-                    ✔ Livrée
-                  </button>
-
-                  <button
-                    style={styles.button}
-                    onClick={() =>
-                      deleteOrder(o.id)
-                    }
-                  >
-                    ✖ Supprimer
-                  </button>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-
-        {tab === "items" && (
-          <div>
-            <h1>Boutique CRUD</h1>
-
-            <input
-              style={styles.input}
-              placeholder="Recherche..."
-              value={search}
-              onChange={(e) =>
-                setSearch(e.target.value)
-              }
-            />
-
-            <select
-              style={styles.input}
-              value={stockFilter}
-              onChange={(e) => setStockFilter(e.target.value)}
+          return (
+            <div
+              className={`card ${weapon.stock === 0 ? 'danger' : weapon.stock <= 3 ? 'warn' : 'ok'}`}
+              key={weapon.id}
             >
-              <option value="all">Tous stocks</option>
-              <option value="rupture">Rupture</option>
-              <option value="faible">Stock faible</option>
-              <option value="ok">Stock OK</option>
-            </select>
-
-            <div style={styles.card}>
-              <input
-                style={styles.input}
-                placeholder="Nom"
-                value={name}
-                onChange={(e) =>
-                  setName(e.target.value)
-                }
+              <img
+                src={weapon.image}
+                alt=""
               />
 
-              <input
-                style={styles.input}
-                placeholder="Prix"
-                value={price}
-                onChange={(e) =>
-                  setPrice(e.target.value)
-                }
-              />
+              <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:8}}>
+              <h3>{weapon.name}</h3>
+              <button onClick={()=>toggleFavorite(weapon.id as string)}>{favorites.includes(weapon.id as string)?'❤️':'🤍'}</button>
+            </div>
 
-              <select
-                style={styles.input}
-                value={category}
-                onChange={(e) => setCategory(e.target.value)}
-              >
-                <option value="">Catégorie</option>
-                {[...new Set(items.map((x:any) => x.category).filter(Boolean))].map((cat:any) => (
-                  <option key={cat} value={cat}>{cat}</option>
-                ))}
-              </select>
-
-              <input
-                style={styles.input}
-                placeholder="Image URL"
-                value={image}
-                onChange={(e) =>
-                  setImage(e.target.value)
-                }
-              />
-
-              <input
-                type="file"
-                accept="image/*"
-                onChange={(e) => {
-                  const file = e.target.files?.[0]
-                  if (file) uploadItemImage(file)
-                }}
-              />
-
-              {itemFileUploading && <p>Upload image...</p>}
-
-              {image && (
-                <div>
-                  <img src={image} style={{ width: 120, height: 120, objectFit: "cover", borderRadius: 10, border: "1px solid #00ffcc" }} />
-                  <div>
-                    <button style={styles.button} onClick={clearImage}>❌ Retirer image</button>
-                  </div>
-                </div>
+              {promoEnabled ? (
+                <>
+                  <p className="oldPrice">
+                    {weapon.price}$
+                  </p>
+                  <p className="promoPrice">
+                    {finalPrice}$
+                  </p>
+                </>
+              ) : (
+                <p>{weapon.price}$</p>
               )}
 
-              <input
-                style={styles.input}
-                placeholder="Stock"
-                value={stock}
-                onChange={(e) =>
-                  setStock(e.target.value)
-                }
-              />
+              <p>Stock : {weapon.stock}</p>
+              <p>{rarity(weapon.stock)}</p>
 
-              <button
-                style={styles.button}
-                onClick={saveItem}
-              >
-                {editId
-                  ? "💾 Modifier"
-                  : "➕ Ajouter"}
-              </button>
+              {stockBadge(weapon.stock)}
 
-              {editId && (
+              <button onClick={()=>setQuickView(weapon)} style={{marginBottom:8}}>👁 Aperçu</button>
+              
+              {weapon.stock > 0 ? (
                 <button
-                  style={styles.button}
-                  onClick={resetForm}
+                  onClick={() =>
+                    addToCart(weapon)
+                  }
                 >
-                  Annuler
+                  Ajouter
+                </button>
+              ) : (
+                <button disabled>
+                  Indisponible
                 </button>
               )}
             </div>
+          )
+        })}
+      </section>
 
-            {filteredItems.map(
-              (it: any) => (
-                <div
-                  key={it.id}
-                  style={{...styles.card, ...(Number(it.stock) === 0 ? styles.cardDanger : Number(it.stock) <= 3 ? styles.cardWarn : styles.cardOk)}}
-                >
-                  {it.image && (<img src={it.image} style={{width:72,height:72,objectFit:"cover",borderRadius:10,border:"1px solid #00ffcc",marginBottom:10}} />)}<b>{it.name}</b> — 
-                  {it.price}$ —
-                  Stock {it.stock} (
-                  {stockBadge(
-                    Number(it.stock)
-                  )}
-                  )
+      <section className="pager">
+        <button disabled={page===1} onClick={()=>setPage(page-1)}>◀</button>
+        <span>Page {page} / {totalPages}</span>
+        <button disabled={page===totalPages} onClick={()=>setPage(page+1)}>▶</button>
+      </section>
 
-                  <div
-                    style={{
-                      marginTop: 8,
-                    }}
-                  >
-                    <button
-                      style={styles.button}
-                      onClick={() =>
-                        editItem(it)
-                      }
-                    >
-                      ✏ Modifier
-                    </button>
+            {auctionOpen && (<div className="drawer" style={{left:'50%',right:'auto',transform:'translateX(-50%)',width:520,height:'auto',maxHeight:'85vh',top:'7vh'}}><h2>💰 Enchères Rares</h2><p>Katana Doré : 12500$</p><p>AWM Elite : 9800$</p><button onClick={()=>setAuctionOpen(false)}>Fermer</button></div>)}
+      {inventoryOpen && (<div className="drawer" style={{left:'50%',right:'auto',transform:'translateX(-50%)',width:520,height:'auto',maxHeight:'85vh',top:'7vh'}}><h2>🎒 Inventaire</h2><p>Articles achetés : {xp>0 ? Math.floor(xp/10) : 0}</p><p>Coupons actifs : {coupon}%</p><button onClick={()=>setInventoryOpen(false)}>Fermer</button></div>)}
+      
+      {leadersOpen && (
+        <div className="drawer" style={{left:'50%',right:'auto',transform:'translateX(-50%)',width:520,height:'auto',maxHeight:'85vh',top:'7vh'}}>
+          <h2>🏆 Top Acheteurs</h2>
+          <p>1. {pseudo} ⭐ {xp}</p>
+          <p>2. RaiderX ⭐ 80</p>
+          <p>3. Ghost ⭐ 45</p>
+          <button onClick={()=>setLeadersOpen(false)}>Fermer</button>
+        </div>
+      )}
 
-                    <button
-                      style={styles.button}
-                      onClick={() =>
-                        removeItem(
-                          it.id
-                        )
-                      }
-                    >
-                      🗑 Supprimer
-                    </button>
-                  </div>
-                </div>
-              )
-            )}
+                  {historyOpen && (
+        <div className="drawer" style={{left:'50%',right:'auto',transform:'translateX(-50%)',width:520,height:'auto',maxHeight:'85vh',top:'7vh'}}>
+          <h2>📜 Historique Client</h2>
+          <p>Niveau fidélité : {Math.floor(xp/100)+1}</p>
+          <p>XP total : {xp}</p>
+          <p>Récompense active : {coupon>0 ? `-${coupon}%` : 'Aucune'}</p>
+          <button onClick={()=>setHistoryOpen(false)}>Fermer</button>
+        </div>
+      )}
+
+      {quickView && (
+        <div className="drawer" style={{left:'50%',right:'auto',transform:'translateX(-50%)',width:520,height:'auto',maxHeight:'90vh',top:'5vh'}}>
+          <h2>{quickView.name}</h2>
+          <img src={quickView.image} style={{width:'100%',maxHeight:260,objectFit:'contain'}} />
+          <p>Prix : {getPrice(quickView.price)}$</p>
+          <p>Stock : {quickView.stock}</p>
+          <button onClick={()=>addToCart(quickView)}>Ajouter au panier</button>
+          <button onClick={()=>setQuickView(null)}>Fermer</button>
+        </div>
+      )}
+
+      {shopChatOpen && (
+        <div className="drawer" style={{left:'20px',right:'auto',width:380,height:'70vh',top:'15vh'}}>
+          <h2>💬 Support Staff {staffOnline ? '🟢 En ligne' : '⚫ Hors ligne'}</h2>
+          <div style={{maxHeight:'48vh',overflowY:'auto'}}>
+            {shopChatMessages.map((m:any)=>(<div key={m.id} className="line" style={{display:'block',textAlign:'left'}}><b>{m.user}</b> [{m.role}]<br />{m.text}</div>))}
           </div>
-        )}
+          <input placeholder="Votre message..." value={shopChatText} onChange={(e)=>setShopChatText(e.target.value)} />
+          <button onClick={sendShopChat}>Envoyer</button>
+          <small style={{display:'block',marginTop:8,opacity:.8}}>Temps réel activé</small>
+          <button onClick={()=>setShopChatOpen(false)}>Fermer</button>
+        </div>
+      )}
 
-        {tab === "promo" && (
-          <div>
-            <h1>Promotions</h1>
+      {cartOpen && (
+        <div className="drawer">
+          <h2>🛒 Panier Premium</h2>
 
-            <label>
-              <input
-                type="checkbox"
-                checked={
-                  promoEnabled
-                }
-                onChange={(e) =>
-                  setPromoEnabled(
-                    e.target.checked
-                  )
-                }
-              />{" "}
-              Activer
-            </label>
-
+          {cart.map((item) => (
             <div
-              style={{
-                marginTop: 10,
-              }}
+              key={item.id}
+              className="line"
             >
-              <input
-                style={styles.input}
-                type="number"
-                min="0"
-                max="20"
-                value={promo}
-                onChange={(e) =>
-                  setPromo(
-                    Number(
-                      e.target.value
-                    )
-                  )
-                }
-              />
+              <span>
+                {item.name}
+              </span>
+
+              <div>
+                <button
+                  onClick={() =>
+                    minusQty(item.id)
+                  }
+                >
+                  -
+                </button>
+
+                <span className="qty">
+                  {item.quantity}
+                </span>
+
+                <button
+                  onClick={() =>
+                    plusQty(item.id)
+                  }
+                >
+                  +
+                </button>
+              </div>
 
               <button
-                style={styles.button}
-                onClick={savePromo}
+                onClick={() =>
+                  removeItem(item.id)
+                }
               >
-                💾 Sauvegarder
+                ✖
               </button>
             </div>
-          </div>
-        )}
+          ))}
 
-        {tab === "banner" && (
-          <div>
-            <h1>Bannière Boutique</h1>
-            <input type="file" accept="image/*" onChange={(e) => {
-              const file = e.target.files?.[0]
-              if (file) uploadBanner(file)
-            }} />
-            {uploading && <p>Upload...</p>}
-            {bannerUrl && (
-              <>
-                <img src={bannerUrl} style={{ width:"100%", maxWidth:700, marginTop:20, borderRadius:12, border:"1px solid #00ffcc" }} />
-                <div>
-                  <button style={styles.button} onClick={deleteBanner}>🗑 Supprimer bannière</button>
-                </div>
-              </>
-            )}
-          </div>
-        )}
+          <select
+            value={priority}
+            onChange={(e) =>
+              setPriority(
+                e.target.value
+              )
+            }
+          >
+            <option value="low">
+              Standard
+            </option>
+            <option value="medium">
+              Prioritaire +300$
+            </option>
+            <option value="high">
+              Urgent +600$
+            </option>
+          </select>
 
-        {tab === "auction" && (
-          <div>
-            <h1>Gestion Enchères</h1>
-            <div style={styles.card}>
-              <select style={styles.input} value={auctionItem} onChange={(e)=>setAuctionItem(e.target.value)}>
-                <option value="">Choisir un item</option>
-                {items.map((it:any)=><option key={it.id} value={it.id}>{it.name}</option>)}
-              </select>
-              <input style={styles.input} placeholder="Prix départ" value={auctionStart} onChange={(e)=>setAuctionStart(e.target.value)} />
-              <input style={styles.input} placeholder="Pas enchère" value={auctionStep} onChange={(e)=>setAuctionStep(e.target.value)} />
-              <button style={styles.button} onClick={saveAuction}>💾 Sauvegarder</button>
-            </div>
-          </div>
-        )}
+          <h3>Total : {Math.round(total * (1 - coupon/100))}$</h3>
 
-        {tab === "rewards" && (
-          <div>
-            <h1>Coupons Réduction</h1>
-            <div style={styles.card}>
-              <input style={styles.input} placeholder="Nb commandes" value={rewardOrders} onChange={(e)=>setRewardOrders(e.target.value)} />
-              <input style={styles.input} placeholder="Pourcentage %" value={rewardPercent} onChange={(e)=>setRewardPercent(e.target.value)} />
-              <button style={styles.button} onClick={saveRewards}>💾 Sauvegarder</button>
-            </div>
-          </div>
-        )}
+          <button
+            onClick={validateOrder}
+          >
+            ✅ Valider commande
+          </button>
 
-        {tab === "users" && (
-          <div>
-            <h1>Gestion Accès</h1>
-            <div style={styles.card}>
-              <input style={styles.input} placeholder="Pseudo" value={newPseudo} onChange={(e)=>setNewPseudo(e.target.value)} />
-              <input style={styles.input} placeholder="Code" value={newCode} onChange={(e)=>setNewCode(e.target.value)} />
-              <select style={styles.input} value={newRole} onChange={(e)=>setNewRole(e.target.value)}>
-                <option value="moderator">Modérateur</option>
-                <option value="admin">Admin</option>
-              </select>
-              <button style={styles.button} onClick={saveAdminUser}>➕ Ajouter accès</button>
-            </div>
-            {adminUsers.map((u:any)=>(
-              <div key={u.id} style={styles.card}>
-                <b>{u.pseudo}</b> — {u.role}
-                <button style={styles.button} onClick={()=>removeAdminUser(u.id)}>🗑 Supprimer</button>
-              </div>
-            ))}
-          </div>
-        )}
+          <button
+            onClick={() =>
+              setCartOpen(false)
+            }
+          >
+            Fermer
+          </button>
+        </div>
+      )}
 
-        {tab === "chat" && (
-          <div>
-            <h1>Chat Staff / Joueurs</h1>
-            <div style={styles.card}>🟢 Connecté : {currentUser} ({userRole}) • {staffOnline ? "🟢 Support actif" : "⚫ Aucun staff actif"}</div>
-            <div style={{maxHeight:420,overflowY:"auto",display:"flex",flexDirection:"column-reverse"}}>
-              {[...chatMessages].reverse().map((m:any)=>(
-              <div key={m.id} style={{...styles.card,borderColor:m.role === "superadmin" ? "#ff4040" : m.role === "admin" ? "#ffaa00" : "#00ffcc"}}>
-                <b>{m.user}</b> [{m.role}] • {new Date(m.createdAt || Date.now()).toLocaleTimeString("fr-FR",{hour:"2-digit",minute:"2-digit"})}
-                <div style={{marginTop:6}}>{m.text}</div>
-              </div>
-            ))}
-            </div>
-            <div style={styles.card}>
-              <input style={styles.input} placeholder="Message..." value={chatText} onChange={(e)=>setChatText(e.target.value)} onKeyDown={(e)=>{if(e.key==='Enter') sendChat()}} />
-              <button style={styles.button} onClick={sendChat}>Envoyer</button>
-            </div>
-          </div>
-        )}
+      <style jsx>{`
+        .page {
+          min-height: 100vh;
+          padding: 20px;
+          color: #00ffcc;
+          background:
+            linear-gradient(rgba(0,0,0,.55),rgba(0,0,0,.55)),
+            url("/background.jpg") center center / contain no-repeat fixed;
+          background-color:#000;
+        }
 
-        {tab === "logs" && (
-          <div>
-            <h1>Logs</h1>
+        .top {
+          display: flex;
+          justify-content: space-between;
+          gap: 20px;
+          flex-wrap: wrap;
+        }
 
-            {logs.map((l: any) => (
-              <div
-                key={l.id}
-                style={styles.card}
-              >
-                <span>{l.message}</span>
-              </div>
-            ))}
-          </div>
-        )}
-      </section>
+        .actionsTop,
+        .filters,
+        .tabs {
+          display: flex;
+          gap: 10px;
+          flex-wrap: wrap;
+          margin-top: 10px;
+        }
+
+        .promoBar {
+          margin: 18px 0;
+          padding: 12px;
+          text-align: center;
+          border: 1px solid red;
+          color: #fff;
+          background: rgba(255,0,0,.25);
+          border-radius: 10px;
+        }
+
+        .promoBar.green {
+          border-color: lime;
+          background: rgba(0,255,0,.15);
+        }
+
+        .tabs{margin:18px 0;display:flex;gap:10px;flex-wrap:wrap}
+        .tab{background:#000;border:1px solid #00ffcc;color:#00ffcc;padding:10px 14px;border-radius:10px;cursor:pointer}
+        .tab.active{box-shadow:0 0 14px rgba(0,255,204,.35);background:rgba(0,255,204,.08)}
+
+        .grid {
+          display: grid;
+          grid-template-columns:
+            repeat(auto-fit,minmax(220px,1fr));
+          gap: 20px;
+        }
+
+        .card{transition:.2s}
+        .card:hover{transform:translateY(-3px)}
+
+        .drawer {
+          background: rgba(0,0,0,.78);
+          border: 1px solid #00ffcc;
+          border-radius: 14px;
+          padding: 15px;
+          text-align: center;
+        }
+
+        .card.ok{border-color:#00ffcc}
+        .card.warn{border-color:orange;box-shadow:0 0 16px rgba(255,165,0,.18)}
+        .card.danger{border-color:#ff3b3b;box-shadow:0 0 18px rgba(255,0,0,.22)}
+
+        .card img {
+          width: 100%;
+          height: 160px;
+          object-fit: contain;
+        }
+
+        .oldPrice {
+          text-decoration: line-through;
+          opacity: .7;
+        }
+
+        .promoPrice {
+          color: lime;
+          font-size: 24px;
+          font-weight: bold;
+        }
+
+        .badge {
+          display: inline-block;
+          padding: 4px 8px;
+          margin: 6px 0;
+          border-radius: 8px;
+          font-size: 12px;
+          border: 1px solid currentColor;
+        }
+
+        .green { color: lime; }
+        .orange { color: orange; }
+        .red { color: red; }
+
+        input,
+        select,
+        button {
+          background: black;
+          color: #00ffcc;
+          border: 1px solid #00ffcc;
+          padding: 8px;
+          border-radius: 8px;
+        }
+
+        .drawer {
+          position: fixed;
+          top: 0;
+          right: 0;
+          width: 420px;
+          height: 100vh;
+          overflow: auto;
+          z-index: 99;
+        }
+
+        .pager{display:flex;justify-content:center;align-items:center;gap:12px;margin:18px 0;flex-wrap:wrap}
+        .eliteTop{gap:14px}
+        .actionsTop button,.eliteBtn{min-width:72px;height:72px;padding:10px 12px;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:6px;font-size:13px;line-height:1.1;border-radius:16px;background:linear-gradient(180deg,rgba(0,255,204,.08),rgba(0,0,0,.92));box-shadow:0 0 14px rgba(0,255,204,.14), inset 0 0 10px rgba(255,255,255,.03);transition:.2s ease} 
+        .eliteBtn:hover{transform:translateY(-3px) scale(1.03);box-shadow:0 0 20px rgba(0,255,204,.28)}
+        .eliteBtn .ico{font-size:20px}
+        .actionsTop .cartBtn{min-width:72px;width:72px;position:relative}
+        .actionsTop .cartBtn::after{content:'';position:absolute;inset:6px;border:1px solid rgba(0,255,204,.18);border-radius:12px}
+        @media (max-width:768px){.actionsTop button{min-width:52px;height:52px;font-size:12px;padding:6px}.actionsTop .cartBtn{width:52px}}
+        .pager span{padding:8px 12px;border:1px solid #00ffcc;border-radius:8px}
+
+        .line {
+          display: flex;
+          justify-content: space-between;
+          margin: 12px 0;
+          gap: 8px;
+          align-items: center;
+        }
+
+        .qty {
+          padding: 0 10px;
+        }
+      `}</style>
     </main>
   )
-}
-
-const styles: any = {
-  page: {
-    minHeight: "100vh",
-    display: "grid",
-    gridTemplateColumns:
-      "240px 1fr",
-    background: "radial-gradient(circle at top, #1a1a1a 0%, #050505 55%, #000 100%)",
-    color: "#00ffcc",
-  },
-
-  loginPage: {
-    minHeight: "100vh",
-    display: "grid",
-    placeItems: "center",
-    background: "#000",
-    color: "#00ffcc",
-  },
-
-  sidebar: {
-    padding: 20,
-    alignContent:"start",
-    borderRight:
-      "1px solid #00ffcc",
-    boxShadow:"0 0 25px rgba(0,255,204,.15)",
-    display: "grid",
-    gap: 10,
-  },
-
-  content: {
-    padding: 20,
-    backgroundImage:"linear-gradient(rgba(0,255,204,.03) 1px, transparent 1px), linear-gradient(90deg, rgba(0,255,204,.03) 1px, transparent 1px)",
-    backgroundSize:"24px 24px",
-  },
-
-  grid: {
-    display: "grid",
-    gridTemplateColumns:
-      "repeat(auto-fit,minmax(220px,1fr))",
-    gap: 14,
-    marginTop: 20,
-  },
-
-  card: {
-    backdropFilter:"blur(6px)",
-    border:
-      "1px solid #00ffcc",
-    background:"rgba(15,15,15,.88)",
-    boxShadow:"0 0 14px rgba(0,255,204,.12)",
-    padding: 12,
-    borderRadius: 10,
-    marginBottom: 12,
-  },
-
-  input: {
-    padding: 10,
-    background: "#000",
-    color: "#00ffcc",
-    border:
-      "1px solid #00ffcc",
-    borderRadius: 8,
-    margin: 4,
-  },
-
-  button: {
-    fontWeight:"bold",
-    padding:
-      "10px 12px",
-    background: "#000",
-    color: "#00ffcc",
-    border:
-      "1px solid #00ffcc",
-    borderRadius: 8,
-    cursor: "pointer",
-    transition:"all .2s ease", transform:"translateZ(0)",
-    margin: 4,
-  },
-
-  hud:{padding:6,border:"1px solid #00ffcc",borderRadius:8,textAlign:"center",fontSize:11,marginBottom:8,maxWidth:170},
-  radar:{padding:6,border:"1px dashed #00ffcc",borderRadius:8,textAlign:"center",fontSize:11,opacity:.9,marginBottom:8,letterSpacing:1,maxWidth:170},
-  statusBar:{padding:6,border:"1px solid rgba(255,255,255,.12)",borderRadius:8,textAlign:"center",fontSize:10,marginBottom:8,color:"#9fffe8",background:"rgba(0,255,204,.06)",maxWidth:170},
-
-  cardOk:{border:"1px solid #00ffcc"},
-  cardWarn:{border:"2px solid orange",background:"rgba(255,165,0,.06)",boxShadow:"0 0 18px rgba(255,165,0,.28)"},
-  cardDanger:{border:"2px solid #ff3b3b",background:"rgba(255,0,0,.08)",boxShadow:"0 0 22px rgba(255,0,0,.35)"},
-
-  notif: {
-    padding: 12,
-    marginBottom: 18,
-    border:
-      "1px solid red",
-    color: "#fff",
-    background:
-      "rgba(255,0,0,.22)",
-    borderRadius: 10,
-    fontWeight: "bold",
-  },
 }
