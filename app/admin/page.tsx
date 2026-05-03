@@ -52,6 +52,7 @@ export default function AdminPage() {
   const [category, setCategory] = useState("")
   const [image, setImage] = useState("")
   const [stock, setStock] = useState("")
+  const [buybackLimit, setBuybackLimit] = useState("3")
 
   const [search, setSearch] = useState("")
   const [stockFilter, setStockFilter] = useState("all")
@@ -295,6 +296,7 @@ export default function AdminPage() {
     setCategory("")
     setImage("")
     setStock("")
+    setBuybackLimit("3")
   }
 
   async function saveItem() {
@@ -304,6 +306,7 @@ export default function AdminPage() {
       category,
       image,
       stock: Number(stock),
+      buybackLimit: Number(buybackLimit || 3),
     }
 
     if (editId) {
@@ -325,6 +328,7 @@ export default function AdminPage() {
     setCategory(it.category)
     setImage(it.image)
     setStock(String(it.stock))
+    setBuybackLimit(String(it.buybackLimit || 3))
   }
 
   async function removeItem(id: string) {
@@ -696,11 +700,18 @@ export default function AdminPage() {
 
               <input
                 style={styles.input}
-                placeholder="Stock"
+                placeholder="Stock actuel"
                 value={stock}
                 onChange={(e) =>
                   setStock(e.target.value)
                 }
+              />
+
+              <input
+                style={styles.input}
+                placeholder="Limite rachat"
+                value={buybackLimit}
+                onChange={(e)=>setBuybackLimit(e.target.value)}
               />
 
               <button
@@ -730,7 +741,7 @@ export default function AdminPage() {
                 >
                   {it.image && (<img src={it.image} style={{width:72,height:72,objectFit:"cover",borderRadius:10,border:"1px solid #00ffcc",marginBottom:10}} />)}<b>{it.name}</b> — 
                   {it.price}$ —
-                  Stock {it.stock} (
+                  Stock {it.stock} • Rachat max {it.buybackLimit || 3} (
                   {stockBadge(
                     Number(it.stock)
                   )}

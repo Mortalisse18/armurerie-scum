@@ -34,12 +34,9 @@ export default function ProfilePage() {
   const [sellItem, setSellItem] = useState("")
   const [sellQty, setSellQty] = useState("1")
   const [sellPrice, setSellPrice] = useState("0")
-  const SHOP_ITEMS:any[] = [
-    { name: "AK47", price: 20000 },
-    { name: "M4A1", price: 25000 },
-    { name: "MP5", price: 14000 },
-    { name: "9mm Ammo", price: 500 },
-  ]
+  const [lastSellAt, setLastSellAt] = useState(0)
+  const [shopItems, setShopItems] = useState<any[]>([])
+  const AVAILABLE_BUYBACK = shopItems.filter((x:any)=>Number(x.stock || 0) <= 3)
 
   useEffect(() => {
     loadData()
@@ -135,6 +132,9 @@ export default function ProfilePage() {
       }
     }
 
+    const weaponsSnap = await getDocs(collection(db,"weapons"))
+    setShopItems(weaponsSnap.docs.map((d:any)=>({id:d.id,...d.data()})))
+
     const buySnap = await getDocs(query(collection(db,"buybackRequests"), where("pseudo","==",name)))
     setBuybacks(buySnap.docs.map((d:any)=>({id:d.id,...d.data()})).reverse())
 
@@ -143,8 +143,13 @@ export default function ProfilePage() {
   }
 
   async function sendSellRequest(){
+    const now = Date.now()
+    if(now - lastSellAt < 120000){ setNotif("⏳ Attendez 2 minutes entre chaque offre"); return }
     if(!sellItem || Number(sellQty) <= 0) return
-    const selected = SHOP_ITEMS.find((x:any)=>x.name===sellItem)
+    if(Number(sellQty) > 10){ setNotif("🚫 Maximum 10 unités par demande"); return }
+    const selected = AVAILABLE_BUYBACK.find((x:any)=>x.name===sellItem)
+    const maxNeed = Math.max(0, Number(selected?.buybackLimit || 3) - Number(selected?.stock || 0))
+    if(Number(sellQty) > maxNeed){ setNotif(`🚫 Maximum ${maxNeed} unité(s) nécessaire(s)`); return }
     const autoUnitPrice = Math.round(Number(selected?.price || 0) * 0.5)
     await addDoc(collection(db,"buybackRequests"),{
       pseudo,
@@ -155,6 +160,7 @@ export default function ProfilePage() {
       status:"pending",
       createdAt:Date.now(),
     })
+    setLastSellAt(now)
     setSellItem("")
     setSellQty("1")
     setSellPrice("0")
@@ -294,18 +300,19 @@ export default function ProfilePage() {
         <div className="card">
           <select value={sellItem} onChange={(e)=>setSellItem(e.target.value)}>
             <option value="">Choisir un item</option>
-            {SHOP_ITEMS.map((it:any)=><option key={it.name} value={it.name}>{it.name}</option>)}
+            {AVAILABLE_BUYBACK.map((it:any)=><option key={it.name} value={it.name}>{it.name} {it.stock === 0 ? `(Rupture • Max ${Math.max(0, Number(it.buybackLimit || 3) - Number(it.stock || 0))})` : `(Stock ${it.stock} • Max ${Math.max(0, Number(it.buybackLimit || 3) - Number(it.stock || 0))})`}</option>)}
           </select>
-          <input value={sellQty} onChange={(e)=>setSellQty(e.target.value)} placeholder="Quantité" />
-          <p>💵 Prix reprise unité : {Math.round(Number(SHOP_ITEMS.find((x:any)=>x.name===sellItem)?.price || 0) * 0.5)}$</p>
-          <p>💰 Total : {Number(sellQty||0) * Math.round(Number(SHOP_ITEMS.find((x:any)=>x.name===sellItem)?.price || 0) * 0.5)}$</p>
+          <input style={{maxWidth:"140px"}} type="number" min="1" max="10" value={sellQty} onChange={(e)=>setSellQty(e.target.value)} placeholder={`Max ${Math.max(0, Number(AVAILABLE_BUYBACK.find((x:any)=>x.name===sellItem)?.buybackLimit || 3) - Number(AVAILABLE_BUYBACK.find((x:any)=>x.name===sellItem)?.stock || 0))}`} />
+          <p>💵 Prix reprise unité : {Math.round(Number(shopItems.find((x:any)=>x.name===sellItem)?.price || 0) * 0.5)}$</p>
+          <p>💰 Total : {Number(sellQty||0) * Math.round(Number(shopItems.find((x:any)=>x.name===sellItem)?.price || 0) * 0.5)}$</p>
+          <p style={{fontSize:12,opacity:.8}}>📌 Limite: besoin réel selon réglage admin • max 10 • 1 offre / 2 min</p>
           <button onClick={sendSellRequest}>Envoyer offre</button>
         </div>
 
         <div className="list">
           {buybacks.map((b:any)=>(
             <div key={b.id} className="card">
-              <div className="rowTop"><strong>{b.item} x{b.quantity}</strong><span>{b.status}</span></div>
+              <div className="rowTop"><strong>{b.item} x{b.quantity}</strong><span className={`badge ${b.status}`}>{b.status === "pending" ? "⏳ En attente" : b.status === "accepted" ? "✅ Accepté" : "❌ Refusé"}</span></div>
               <p>💰 {b.total}$</p>
             </div>
           ))}
@@ -316,7 +323,7 @@ export default function ProfilePage() {
           {replies.length === 0 && <p>Aucun message</p>}
           {replies.map((r:any)=>(
             <div key={r.id} className="card">
-              <div className="rowTop"><strong>👮 {r.admin}</strong><button className="mini">🔴</button></div>
+              <div className="rowTop"><strong>👮 {r.admin}</strong><span className="dotPulse">🔴</span></div>
               <p>{r.message}</p>
               <small>{formatDate(r.createdAt)}</small>
             </div>
@@ -354,7 +361,7 @@ export default function ProfilePage() {
                 >
                   <div className="rowTop">
                     <strong>
-                      Commande #
+                      📦 Commande #
                       {index +
                         1}
                     </strong>
@@ -580,6 +587,28 @@ export default function ProfilePage() {
         .wait {
           color: orange;
         }
+
+        .badge {
+          padding: 4px 10px;
+          border-radius: 999px;
+          font-size: 12px;
+          font-weight: bold;
+          border: 1px solid #00ffcc;
+        }
+
+        .badge.pending { color: orange; border-color: orange; background: rgba(255,165,0,0.08); }
+        .badge.accepted { color: lime; border-color: lime; background: rgba(0,255,0,0.08); }
+        .badge.refused { color: #ff5b5b; border-color: #ff5b5b; background: rgba(255,0,0,0.08); }
+
+        .dotPulse { animation: pulse 1.2s infinite; display: inline-block; }
+        @keyframes pulse {
+          0% { transform: scale(1); opacity: 1; }
+          50% { transform: scale(1.2); opacity: .6; }
+          100% { transform: scale(1); opacity: 1; }
+        }
+
+        .box::-webkit-scrollbar { width: 8px; }
+        .box::-webkit-scrollbar-thumb { background: rgba(0,255,204,0.35); border-radius: 10px; }
 
         .actions {
           display: grid;
