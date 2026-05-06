@@ -25,7 +25,7 @@ import { Catalog } from "./_components/Catalog"
 import { Chat } from "./_components/Chat"
 import { Dashboard } from "./_components/Dashboard"
 import { Logs } from "./_components/Logs"
-import { Orders } from "./_components/Orders"
+import { getOrderPlayerName, Orders } from "./_components/Orders"
 import { Sidebar } from "./_components/Sidebar"
 import { StaffPermissions } from "./_components/StaffPermissions"
 import { SAAS_THEME, styles } from "./_components/styles"
@@ -419,7 +419,7 @@ export default function AdminPage() {
   const topClient = useMemo(() => {
     const map: Record<string, number> = {}
     orders.forEach((order: any) => {
-      const name = order.playerName || order.pseudo || order.user || "Inconnu"
+      const name = getOrderPlayerName(order)
       map[name] = (map[name] || 0) + 1
     })
     return Object.entries(map).sort((a, b) => Number(b[1]) - Number(a[1]))[0]?.[0] || "Aucun"

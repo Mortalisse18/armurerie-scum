@@ -9,21 +9,71 @@ const ORDER_SECTIONS: { key: OrderStatus; title: string }[] = [
   { key: "refused", title: "❌ Commandes refusées" },
 ]
 
-function getOrderName(order: any) {
-  return (
-    order.playerName ||
-    order.pseudo ||
-    order.user ||
-    order.username ||
-    order.buyer ||
-    order.discord ||
-    order.displayName ||
-    order.client ||
-    order.nickname ||
-    order.gamertag ||
-    order.name ||
-    "Joueur inconnu"
-  )
+const PLAYER_FIELD_PRIORITY = ["pseudo", "username", "displayName", "steamName"]
+const LEGACY_PLAYER_FIELDS = ["playerName", "name", "nickname", "gamertag", "discord", "client"]
+const PLAYER_OBJECT_KEYS = ["user", "player", "playerData", "userData", "metadata", "profile", "customer", "buyer"]
+const EMPTY_PLAYER_VALUES = new Set(["", "joueur", "player", "unknown", "undefined", "null"])
+
+function cleanPlayerValue(value: unknown) {
+  if (typeof value !== "string" && typeof value !== "number") return ""
+
+  const text = String(value).trim()
+  if (!text) return ""
+  if (EMPTY_PLAYER_VALUES.has(text.toLowerCase())) return ""
+
+  return text
+}
+
+function findPlayerName(source: any): string {
+  if (!source || typeof source !== "object") return cleanPlayerValue(source)
+
+  for (const field of PLAYER_FIELD_PRIORITY) {
+    const direct = cleanPlayerValue(source[field])
+    if (direct) return direct
+  }
+
+  for (const field of LEGACY_PLAYER_FIELDS) {
+    const direct = cleanPlayerValue(source[field])
+    if (direct) return direct
+  }
+
+  for (const key of PLAYER_OBJECT_KEYS) {
+    const nested = findPlayerName(source[key])
+    if (nested) return nested
+  }
+
+  return ""
+}
+
+export function getOrderPlayerName(order: any) {
+  return findPlayerName(order) || "Inconnu"
+}
+
+function getTimestampMillis(value: any): number | null {
+  if (!value) return null
+  if (typeof value === "number") return value
+  if (typeof value === "string") {
+    const parsed = Date.parse(value)
+    return Number.isNaN(parsed) ? null : parsed
+  }
+  if (value instanceof Date) return value.getTime()
+  if (typeof value.toDate === "function") return value.toDate().getTime()
+  if (typeof value.seconds === "number") return value.seconds * 1000
+  return null
+}
+
+export function formatOrderDate(order: any) {
+  const timestamp =
+    getTimestampMillis(order.createdAt) ||
+    getTimestampMillis(order.updatedAt) ||
+    getTimestampMillis(order.date)
+
+  if (!timestamp) return "Date inconnue"
+
+  return new Date(timestamp).toLocaleString("fr-FR", {
+    dateStyle: "short",
+    timeStyle: "short",
+  })
 }
 
 export function Orders({
@@ -63,7 +113,7 @@ export function Orders({
       {ORDER_SECTIONS.map((section) => {
         const list = orders
           .filter((order: any) => (order.status || "pending") === section.key)
-          .filter((order: any) => getOrderName(order).toLowerCase().includes(search.toLowerCase()))
+          .filter((order: any) => getOrderPlayerName(order).toLowerCase().includes(search.toLowerCase()))
 
         return (
           <div key={section.key} style={{ marginTop: 20 }}>
@@ -75,7 +125,10 @@ export function Orders({
 
             {list.map((order: any) => (
               <div key={order.id} style={styles.card}>
-                <b>{getOrderName(order)}</b> — {order.total}$
+                <b>{getOrderPlayerName(order)}</b> — {order.total}$
+                <div style={{ marginTop: 6, opacity: 0.72, fontSize: 13 }}>
+                  {formatOrderDate(order)}
+                </div>
 
                 <div style={{ marginTop: 8 }}>
                   {order.items?.map((item: any, index: number) => (
