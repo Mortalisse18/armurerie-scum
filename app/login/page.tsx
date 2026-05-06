@@ -37,7 +37,7 @@ export default function LoginPage() {
 
       localStorage.setItem("pseudo", pseudo)
       router.push("/shop")
-    } catch (e: any) {
+    } catch {
       setError("Erreur connexion")
     }
   }

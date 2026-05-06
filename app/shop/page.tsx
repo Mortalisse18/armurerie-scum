@@ -4,10 +4,11 @@
 
 import { useEffect, useMemo, useState } from "react"
 import { useRouter } from "next/navigation"
-import { getDocs, collection, doc, getDoc, addDoc, query, orderBy, onSnapshot } from "firebase/firestore"
+import { getDocs, collection, doc, getDoc, query, orderBy, onSnapshot } from "firebase/firestore"
 import { db } from "@/lib/firebase"
 import { auth, logout } from "@/lib/auth"
 import { createOrderWithStock } from "@/lib/firestore"
+import { getPlayerIdentity } from "@/lib/player"
 
 import type { Weapon } from "@/types/weapon"
 import type { CartItem } from "@/types/cart"
@@ -23,7 +24,7 @@ export default function ShopPage() {
   const [priority, setPriority] = useState("low")
   const [cartOpen, setCartOpen] = useState(false)
   const [notif, setNotif] = useState("")
-  const [pseudo, setPseudo] = useState("Joueur")
+  const [pseudo, setPseudo] = useState("Inconnu")
   const [promoEnabled, setPromoEnabled] = useState(false)
   const [promoPercent, setPromoPercent] = useState(0)
   const [bannerUrl, setBannerUrl] = useState("")
@@ -69,12 +70,13 @@ export default function ShopPage() {
     if (savedXp) setXp(Number(savedXp))
 
     const notifyLoop = setInterval(()=>setAlerts([`🔴 Stock mis à jour ${new Date().toLocaleTimeString()}`]),60000)
-    const unsubAuth = auth.onAuthStateChanged((user) => {
-      if (user?.email) {
-        setPseudo(user.email.replace("@scum.local", ""))
+    const unsubAuth = auth.onAuthStateChanged(async (user) => {
+      if (user) {
+        const identity = await getPlayerIdentity(user)
+        setPseudo(identity.pseudo)
       } else {
         const savedPseudo = localStorage.getItem("pseudo")
-        if (savedPseudo) setPseudo(savedPseudo)
+        if (savedPseudo && savedPseudo !== "Joueur") setPseudo(savedPseudo)
       }
     })
     return ()=>{clearInterval(notifyLoop);unsubChat();unsubAuth()}
@@ -225,12 +227,13 @@ export default function ShopPage() {
     if (cart.length === 0) return
 
     try {
-      const realPseudo = pseudo && pseudo !== "Joueur"
-        ? pseudo
-        : localStorage.getItem("pseudo") || auth.currentUser?.email?.replace("@scum.local", "") || "Joueur"
+      const identity = await getPlayerIdentity(auth.currentUser)
 
       await createOrderWithStock({
-        pseudo: realPseudo,
+        pseudo: identity.pseudo,
+        username: identity.username,
+        displayName: identity.displayName,
+        uid: identity.uid,
         items: cart,
         priority,
         total,

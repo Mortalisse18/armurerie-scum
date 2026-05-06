@@ -38,19 +38,6 @@ export default function ProfilePage() {
   const [shopItems, setShopItems] = useState<any[]>([])
   const AVAILABLE_BUYBACK = shopItems.filter((x:any)=>Number(x.stock || 0) <= 3)
 
-  useEffect(() => {
-    loadData()
-
-    const t =
-      setInterval(
-        loadData,
-        5000
-      )
-
-    return () =>
-      clearInterval(t)
-  }, [])
-
   async function loadData() {
     const user =
       auth.currentUser
@@ -142,8 +129,28 @@ export default function ProfilePage() {
     setLoading(false)
   }
 
+  useEffect(() => {
+    const firstLoad =
+      setTimeout(
+        loadData,
+        0
+      )
+
+    const t =
+      setInterval(
+        loadData,
+        5000
+      )
+
+    return () =>
+    {
+      clearTimeout(firstLoad)
+      clearInterval(t)
+    }
+  }, [])
+
   async function sendSellRequest(){
-    const now = Date.now()
+    const now = getNow()
     if(now - lastSellAt < 120000){ setNotif("⏳ Attendez 2 minutes entre chaque offre"); return }
     if(!sellItem || Number(sellQty) <= 0) return
     if(Number(sellQty) > 10){ setNotif("🚫 Maximum 10 unités par demande"); return }
@@ -158,7 +165,7 @@ export default function ProfilePage() {
       unitPrice:autoUnitPrice,
       total:Number(sellQty) * autoUnitPrice,
       status:"pending",
-      createdAt:Date.now(),
+      createdAt:getNow(),
     })
     setLastSellAt(now)
     setSellItem("")
@@ -666,4 +673,8 @@ export default function ProfilePage() {
       `}</style>
     </main>
   )
+}
+
+function getNow() {
+  return Date.now()
 }

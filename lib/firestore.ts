@@ -9,11 +9,12 @@ import {
   doc,
   query,
   orderBy,
-  serverTimestamp
+  serverTimestamp,
+  runTransaction
 } from "firebase/firestore"
 import { db } from "./firebase"
 
-export type OrderStatus = "pending" | "done"
+export type OrderStatus = "pending" | "assigned" | "delivering" | "delivered" | "refused" | "done"
 
 export async function createOrder(data: any) {
   const ref = await addDoc(collection(db, "orders"), {
@@ -51,9 +52,38 @@ export async function deleteOrder(id: string) {
 
 /* ================= LOGS ================= */
 
-export async function addLog(message: string) {
+export type AdminLogInput =
+  | string
+  | {
+      action: string
+      admin?: string
+      target?: string
+      severity?: "info" | "success" | "warning" | "danger"
+      details?: Record<string, unknown>
+    }
+
+export async function addLog(input: AdminLogInput) {
+  if (typeof input === "string") {
+    await addDoc(collection(db, "logs"), {
+      message: input,
+      action: input,
+      admin: "SYSTEM",
+      target: "",
+      severity: "info",
+      details: {},
+      timestamp: serverTimestamp(),
+      createdAt: serverTimestamp()
+    })
+    return
+  }
+
   await addDoc(collection(db, "logs"), {
-    message,
+    action: input.action,
+    admin: input.admin || "SYSTEM",
+    target: input.target || "",
+    severity: input.severity || "info",
+    details: input.details || {},
+    timestamp: serverTimestamp(),
     createdAt: serverTimestamp()
   })
 }
@@ -66,11 +96,7 @@ export async function getLogs() {
     id: d.id,
     ...d.data()
   }))
-}import {
-  runTransaction,
-  getDoc
-} from "firebase/firestore"
-
+}
 export async function createOrderWithStock(data: any) {
   await runTransaction(db, async (transaction) => {
     for (const item of data.items) {

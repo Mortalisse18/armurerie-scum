@@ -2,25 +2,22 @@
 
 "use client"
 
-import { useEffect, useState } from "react"
+import { useState } from "react"
 import { useRouter } from "next/navigation"
 import { auth } from "@/lib/auth"
 import { createOrder } from "@/lib/firestore"
+import { getPlayerIdentity } from "@/lib/player"
 
 export default function CartPage() {
   const router = useRouter()
 
-  const [cart, setCart] = useState<any[]>([])
+  const [cart] = useState<any[]>(() => {
+    if (typeof window === "undefined") return []
+    const saved = localStorage.getItem("cart")
+    return saved ? JSON.parse(saved) : []
+  })
   const [priority, setPriority] = useState("low")
   const [loading, setLoading] = useState(false)
-
-  useEffect(() => {
-    const saved = localStorage.getItem("cart")
-
-    if (saved) {
-      setCart(JSON.parse(saved))
-    }
-  }, [])
 
   const itemsTotal = cart.reduce(
     (sum, item) =>
@@ -51,14 +48,13 @@ export default function CartPage() {
 
     setLoading(true)
 
-    const pseudo =
-      user.email?.replace(
-        "@scum.local",
-        ""
-      ) || "Inconnu"
+    const identity = await getPlayerIdentity(user)
 
     await createOrder({
-      pseudo,
+      pseudo: identity.pseudo,
+      username: identity.username,
+      displayName: identity.displayName,
+      uid: identity.uid,
       total,
       priority,
       items: cart

@@ -58,16 +58,16 @@ export default function MedicalPage(){
    </section>}
 
    {tab==='urgence' && <section style={styles.card}>
-    <h2>Appel d'Urgence Trauma Team</h2>
+    <h2>Appel d&apos;Urgence Trauma Team</h2>
     <input style={styles.input} placeholder='Pseudo joueur'/>
     <input style={styles.input} placeholder='Zone / Ville'/>
     <select style={styles.input}><option>Blessure légère</option><option>Blessure grave</option><option>Combat actif</option></select>
     <button style={styles.sos}>🚨 SOS PRIORITAIRE</button>
-    <button style={styles.buy} onClick={async()=>{await addDoc(collection(db,'medicalAlerts'),{type:'SOS',createdAt:Date.now()});setAlerts(v=>v+1);setSosSent(true)}}>📡 Envoyer SOS</button>
-    {sosSent && <p>✅ SOS transmis à l'équipe médicale</p>}
+    <button style={styles.buy} onClick={async()=>{await addDoc(collection(db,'medicalAlerts'),{type:'SOS',createdAt:getNow()});setAlerts(v=>v+1);setSosSent(true)}}>📡 Envoyer SOS</button>
+    {sosSent && <p>✅ SOS transmis à l&apos;équipe médicale</p>}
    </section>}
 
-   {tab==='chat' && <section style={styles.card}><h2>Radio / Chat Direct</h2><div style={styles.chat}>{messages.map((m:any,i:number)=><div key={i}>{m.user}: {m.text}</div>)}</div><input value={chatText} onChange={(e)=>setChatText(e.target.value)} style={styles.input} placeholder='Votre message...' /><button style={styles.buy} onClick={async()=>{if(!chatText.trim())return;await addDoc(collection(db,'medicalChat'),{user:'Joueur',text:chatText,createdAt:Date.now()});setChatText('')}}>Envoyer</button></section>}
+   {tab==='chat' && <section style={styles.card}><h2>Radio / Chat Direct</h2><div style={styles.chat}>{messages.map((m:any,i:number)=><div key={i}>{m.user}: {m.text}</div>)}</div><input value={chatText} onChange={(e)=>setChatText(e.target.value)} style={styles.input} placeholder='Votre message...' /><button style={styles.buy} onClick={async()=>{if(!chatText.trim())return;await addDoc(collection(db,'medicalChat'),{user:'Joueur',text:chatText,createdAt:getNow()});setChatText('')}}>Envoyer</button></section>}
 
    {tab==='map' && <section style={styles.card}><h2>Carte Opérationnelle SCUM</h2><div style={styles.map}>📍 Joueur blessé<br/>🚑 Ambulance Alpha<br/>🚑 Ambulance Bravo<br/>🏥 Base Trauma Team</div></section>}
   </div>
@@ -90,4 +90,8 @@ buy:{padding:'10px 14px',background:'#2563eb',color:'#fff',border:'none',borderR
 sos:{padding:'14px 18px',background:'#dc2626',color:'#fff',border:'none',borderRadius:12,cursor:'pointer',fontWeight:'bold',marginRight:10,boxShadow:'0 0 20px rgba(255,0,0,.35)'}, 
 chat:{minHeight:180,padding:14,background:'#eff6ff',borderRadius:12},
 map:{minHeight:280,display:'grid',placeItems:'center',background:'repeating-linear-gradient(45deg,#eff6ff,#eff6ff 10px,#dbeafe 10px,#dbeafe 20px)',borderRadius:14,fontSize:28,fontWeight:'bold',color:'#1e3a8a'}
+}
+
+function getNow() {
+ return Date.now()
 }
