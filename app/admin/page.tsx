@@ -1,22 +1,11 @@
 "use client"
 
+/* eslint-disable @typescript-eslint/no-explicit-any */
+
 import { useEffect, useMemo, useState } from "react"
 import { db, storage } from "@/lib/firebase"
-import {
-  getOrders,
-  getLogs,
-  addLog,
-  updateOrderStatus,
-  deleteOrder,
-} from "@/lib/firestore"
-
-import {
-  ref,
-  uploadBytes,
-  getDownloadURL,
-  
-} from "firebase/storage"
-
+import { addLog, deleteOrder, getLogs, getOrders, updateOrderStatus } from "@/lib/firestore"
+import { ref, uploadBytes, getDownloadURL } from "firebase/storage"
 import {
   collection,
   getDocs,
@@ -30,22 +19,33 @@ import {
   orderBy,
   onSnapshot,
 } from "firebase/firestore"
-
-type OrderStatus = "pending" | "delivered" | "refused" | "done"
+import { Auction, Banner, Promotions, Rewards } from "./_components/Operations"
+import { Buybacks } from "./_components/Buybacks"
+import { Catalog } from "./_components/Catalog"
+import { Chat } from "./_components/Chat"
+import { Dashboard } from "./_components/Dashboard"
+import { Logs } from "./_components/Logs"
+import { Orders } from "./_components/Orders"
+import { Sidebar } from "./_components/Sidebar"
+import { StaffPermissions } from "./_components/StaffPermissions"
+import { SAAS_THEME, styles } from "./_components/styles"
+import type { AdminTab, BuybackMetrics, OrderStatus } from "./_components/types"
 
 export default function AdminPage() {
   const [authOk, setAuthOk] = useState(false)
   const [login, setLogin] = useState("")
   const [pass, setPass] = useState("")
-  const [tab, setTab] = useState("dashboard")
+  const [tab, setTab] = useState<AdminTab>("dashboard")
 
   const [orders, setOrders] = useState<any[]>([])
   const [logs, setLogs] = useState<any[]>([])
   const [items, setItems] = useState<any[]>([])
+  const [buybacks, setBuybacks] = useState<any[]>([])
+  const [adminUsers, setAdminUsers] = useState<any[]>([])
+  const [chatMessages, setChatMessages] = useState<any[]>([])
 
   const [promoEnabled, setPromoEnabled] = useState(false)
   const [promo, setPromo] = useState(10)
-
   const [editId, setEditId] = useState("")
   const [name, setName] = useState("")
   const [price, setPrice] = useState("")
@@ -53,17 +53,15 @@ export default function AdminPage() {
   const [image, setImage] = useState("")
   const [stock, setStock] = useState("")
   const [buybackLimit, setBuybackLimit] = useState("3")
-
   const [search, setSearch] = useState("")
   const [stockFilter, setStockFilter] = useState("all")
+  const [categoryFilter, setCategoryFilter] = useState("all")
   const [notif, setNotif] = useState("")
   const [lastPending, setLastPending] = useState(0)
   const [clock, setClock] = useState("")
   const [bannerUrl, setBannerUrl] = useState("")
   const [uploading, setUploading] = useState(false)
   const [itemFileUploading, setItemFileUploading] = useState(false)
-  const [pulse, setPulse] = useState(true)
-  const [adminUsers, setAdminUsers] = useState<any[]>([])
   const [newPseudo, setNewPseudo] = useState("")
   const [newCode, setNewCode] = useState("")
   const [newRole, setNewRole] = useState("moderator")
@@ -75,29 +73,84 @@ export default function AdminPage() {
   const [rewardOrders, setRewardOrders] = useState("5")
   const [rewardPercent, setRewardPercent] = useState("10")
   const [chatText, setChatText] = useState("")
-  const [chatMessages, setChatMessages] = useState<any[]>([])
   const [chatUnread, setChatUnread] = useState(0)
   const [staffOnline, setStaffOnline] = useState(false)
   const [replyTarget, setReplyTarget] = useState("")
   const [replyText, setReplyText] = useState("")
-  const [buybacks, setBuybacks] = useState<any[]>([])
   const [buybackFilter, setBuybackFilter] = useState("all")
   const [buybackUnread, setBuybackUnread] = useState(0)
   const [lastBuybackCount, setLastBuybackCount] = useState(0)
-  async function deleteBuyback(id:string){
-    await deleteDoc(doc(db,"buybackRequests",id))
-    await logAction("Rachat supprimé")
-    loadAll()
-  }
-  async function clearFinishedBuybacks(){
-    const finished = buybacks.filter((b:any)=>b.status==="accepted" || b.status==="refused")
-    for (const b of finished){ await deleteDoc(doc(db,"buybackRequests",b.id)) }
-    await logAction("Rachats terminés vidés")
-    loadAll()
+
+  async function logAction(message: string) {
+    await addLog(`${currentUser || "SYSTEM"} • ${message}`)
   }
 
-  async function logAction(message:string){
-    await addLog(`${currentUser || "SYSTEM"} • ${message}`)
+  async function loadAdmins() {
+    const snap = await getDocs(collection(db, "admins"))
+    setAdminUsers(snap.docs.map((entry) => ({ id: entry.id, ...entry.data() })))
+  }
+
+  async function loadAll() {
+    const allOrders = (await getOrders()) || []
+    setOrders(allOrders)
+
+    const allLogs = (await getLogs()) || []
+    setLogs(allLogs)
+
+    const pendingCount = allOrders.filter((order: any) => (order.status || "pending") === "pending").length
+    if (pendingCount > lastPending && lastPending > 0) {
+      setNotif("🔔 Nouvelle commande reçue !")
+      setTimeout(() => setNotif(""), 5000)
+    }
+    setLastPending(pendingCount)
+
+    const weaponSnap = await getDocs(collection(db, "weapons"))
+    const weaponItems = weaponSnap.docs.map((entry) => ({ id: entry.id, ...entry.data() }))
+    setItems(weaponItems)
+
+    const promoRef = await getDoc(doc(db, "settings", "promo"))
+    if (promoRef.exists()) {
+      const data: any = promoRef.data()
+      setPromoEnabled(Boolean(data.enabled))
+      setPromo(Number(data.percent || 10))
+    }
+
+    const bannerRef = await getDoc(doc(db, "settings", "banner"))
+    if (bannerRef.exists()) {
+      setBannerUrl(bannerRef.data().url || "")
+    }
+
+    await loadAdmins()
+
+    const chatSnap = await getDocs(collection(db, "staffChat"))
+    setChatMessages(chatSnap.docs.map((entry) => ({ id: entry.id, ...entry.data() })).slice(-20))
+
+    const auctionRef = await getDoc(doc(db, "settings", "auction"))
+    if (auctionRef.exists()) {
+      const data: any = auctionRef.data()
+      setAuctionItem(data.item || "")
+      setAuctionStep(String(data.step || 100))
+      setAuctionStart(String(data.start || 1000))
+    }
+
+    const rewardsRef = await getDoc(doc(db, "settings", "rewards"))
+    if (rewardsRef.exists()) {
+      const data: any = rewardsRef.data()
+      setRewardOrders(String(data.orders || 5))
+      setRewardPercent(String(data.percent || 10))
+    }
+
+    const buybackSnap = await getDocs(collection(db, "buybackRequests"))
+    const liveBuybacks = buybackSnap.docs.map((entry) => ({ id: entry.id, ...entry.data() }))
+    liveBuybacks.sort((a: any, b: any) => sortBuybacks(a, b, weaponItems))
+    setBuybacks(liveBuybacks)
+
+    const pendingBuybacks = liveBuybacks.filter((entry: any) => entry.status === "pending").length
+    if (pendingBuybacks > lastBuybackCount && lastBuybackCount > 0) {
+      setNotif("🔔 Nouvelle demande de rachat !")
+      if (tab !== "buybacks") setBuybackUnread((value) => value + 1)
+    }
+    setLastBuybackCount(pendingBuybacks)
   }
 
   useEffect(() => {
@@ -110,123 +163,37 @@ export default function AdminPage() {
   }, [])
 
   useEffect(() => {
-    const fx = setInterval(() => setPulse((v) => !v), 900)
-    return () => clearInterval(fx)
-  }, [])
-
-  useEffect(() => {
-    const t = setInterval(() => setClock(new Date().toLocaleTimeString("fr-FR")),1000)
-    return () => clearInterval(t)
+    const timer = setInterval(() => setClock(new Date().toLocaleTimeString("fr-FR")), 1000)
+    return () => clearInterval(timer)
   }, [])
 
   useEffect(() => {
     if (!authOk) return
 
     loadAll()
-
-    const t = setInterval(loadAll, 5000)
-    const q = query(collection(db,"staffChat"), orderBy("createdAt","asc"))
-    const unsub = onSnapshot(q,(snap)=>{
-      const msgs = snap.docs.map((d)=>({id:d.id,...d.data()})).slice(-30)
-      setChatMessages(msgs)
-      setStaffOnline(msgs.some((m:any)=>m.role !== "joueur" && Date.now() - Number(m.createdAt || 0) < 300000))
-      if (tab !== "chat" && msgs.length > chatMessages.length) setChatUnread((v)=>v+1)
+    const timer = setInterval(loadAll, 5000)
+    const chatQuery = query(collection(db, "staffChat"), orderBy("createdAt", "asc"))
+    const unsubscribe = onSnapshot(chatQuery, (snap) => {
+      const messages = snap.docs.map((entry) => ({ id: entry.id, ...entry.data() })).slice(-30)
+      setChatMessages(messages)
+      setStaffOnline(messages.some((message: any) => message.role !== "joueur" && Date.now() - Number(message.createdAt || 0) < 300000))
+      if (tab !== "chat" && messages.length > chatMessages.length) setChatUnread((value) => value + 1)
     })
 
-    return () => { clearInterval(t); unsub() }
+    return () => {
+      clearInterval(timer)
+      unsubscribe()
+    }
   }, [authOk, tab])
 
-  async function loadAdmins() {
-    const snap = await getDocs(collection(db, "admins"))
-    setAdminUsers(
-      snap.docs.map((d) => ({ id: d.id, ...d.data() }))
-    )
-  }
-
-  async function loadAll() {
-    const allOrders = (await getOrders()) || []
-    setOrders(allOrders)
-
-    const allLogs = (await getLogs()) || []
-    setLogs(allLogs)
-
-    // ✅ ERREUR TYPESCRIPT CORRIGÉE
-    const pendingCount = allOrders.filter((o: any) => (o.status || "pending") === "pending").length
-
-    if (pendingCount > lastPending && lastPending > 0) {
-      setNotif("🔔 Nouvelle commande reçue !")
-
-      setTimeout(() => {
-        setNotif("")
-      }, 5000)
-    }
-
-    setLastPending(pendingCount)
-
-    const snap = await getDocs(collection(db, "weapons"))
-
-    setItems(
-      snap.docs.map((d) => ({
-        id: d.id,
-        ...d.data(),
-      }))
-    )
-
-    const ref = await getDoc(doc(db, "settings", "promo"))
-
-    if (ref.exists()) {
-      const data: any = ref.data()
-
-      setPromoEnabled(Boolean(data.enabled))
-      setPromo(Number(data.percent || 10))
-    }
-
-    const bannerRef = await getDoc(doc(db, "settings", "banner"))
-    if (bannerRef.exists()) {
-      setBannerUrl(bannerRef.data().url || "")
-    }
-
-    await loadAdmins()
-    const chatSnap = await getDocs(collection(db,"staffChat"))
-    setChatMessages(chatSnap.docs.map((d)=>({id:d.id,...d.data()})).slice(-20))
-    const aucRef = await getDoc(doc(db,"settings","auction"))
-    if(aucRef.exists()){const a:any=aucRef.data();setAuctionItem(a.item||"");setAuctionStep(String(a.step||100));setAuctionStart(String(a.start||1000))}
-    const rewRef = await getDoc(doc(db,"settings","rewards"))
-    if(rewRef.exists()){const r:any=rewRef.data();setRewardOrders(String(r.orders||5));setRewardPercent(String(r.percent||10))}
-    const buySnap = await getDocs(collection(db,"buybackRequests"))
-    const liveBuybacks = buySnap.docs.map((d)=>({id:d.id,...d.data()}))
-    liveBuybacks.sort((a:any,b:any)=>{
-      const getItem=(n:any)=>items.find((it:any)=>it.name?.toLowerCase()===String(n||'').toLowerCase())||{}
-      const ia:any=getItem(a.item)
-      const ib:any=getItem(b.item)
-      const needA=Math.max(0, Number(ia.buybackLimit||3)-Number(ia.stock||0))
-      const needB=Math.max(0, Number(ib.buybackLimit||3)-Number(ib.stock||0))
-      const priA=Number(ia.stock||0)===0?3:Number(ia.stock||0)<=3?2:1
-      const priB=Number(ib.stock||0)===0?3:Number(ib.stock||0)<=3?2:1
-      const payA=Math.round((Number(ia.price||0)*0.5)*Number(a.quantity||0))
-      const payB=Math.round((Number(ib.price||0)*0.5)*Number(b.quantity||0))
-      if((a.status||'pending')!== (b.status||'pending')) return (a.status==='pending'?-1:1)
-      if(priA!==priB) return priB-priA
-      if(needA!==needB) return needB-needA
-      if(payA!==payB) return payB-payA
-      return Number(a.createdAt||0)-Number(b.createdAt||0)
-    })
-    setBuybacks(liveBuybacks)
-    const pendingBuy = liveBuybacks.filter((x:any)=>x.status==="pending").length
-    if(pendingBuy > lastBuybackCount && lastBuybackCount > 0){
-      setNotif("🔔 Nouvelle demande de rachat !")
-      if(tab !== "buybacks") setBuybackUnread((v)=>v+1)
-    }
-    setLastBuybackCount(pendingBuy)
-  }
-
   function connect() {
-    const found = adminUsers.find((u:any)=>u.pseudo===login && u.code===pass)
+    const found = adminUsers.find((user: any) => user.pseudo === login && user.code === pass)
     if ((login === "admin" && pass === "Armory781228") || found) {
+      const role = found?.role || (login === "admin" ? "superadmin" : "admin")
       localStorage.setItem("admin-auth", "ok")
-      localStorage.setItem("admin-role", found?.role || (login === "admin" ? "superadmin" : "admin"))
+      localStorage.setItem("admin-role", role)
       localStorage.setItem("admin-user", login)
-      setUserRole(found?.role || (login === "admin" ? "superadmin" : "admin"))
+      setUserRole(role)
       setCurrentUser(login)
       setAuthOk(true)
     } else {
@@ -234,10 +201,23 @@ export default function AdminPage() {
     }
   }
 
+  function logout() {
+    localStorage.removeItem("admin-auth")
+    localStorage.removeItem("admin-role")
+    localStorage.removeItem("admin-user")
+    location.reload()
+  }
+
+  function selectTab(nextTab: AdminTab) {
+    setTab(nextTab)
+    if (nextTab === "chat") setChatUnread(0)
+    if (nextTab === "buybacks") setBuybackUnread(0)
+  }
+
   async function saveAdminUser() {
-    if(userRole === "moderator") return alert("Accès refusé")
+    if (userRole === "moderator") return alert("Accès refusé")
     if (!newPseudo || !newCode) return
-    await addDoc(collection(db,"admins"), { pseudo:newPseudo, code:newCode, role:newRole })
+    await addDoc(collection(db, "admins"), { pseudo: newPseudo, code: newCode, role: newRole })
     setNewPseudo("")
     setNewCode("")
     setNewRole("moderator")
@@ -245,39 +225,61 @@ export default function AdminPage() {
     loadAll()
   }
 
-  async function saveAuction(){await setDoc(doc(db,"settings","auction"),{item:auctionItem,step:Number(auctionStep),start:Number(auctionStart)});await logAction("Enchères modifiées")}
-
-  async function saveRewards(){await setDoc(doc(db,"settings","rewards"),{orders:Number(rewardOrders),percent:Number(rewardPercent)});await logAction("Récompenses modifiées")}
-
-  async function removeAdminUser(id:string) {
-    if(userRole !== "superadmin") return alert("Accès refusé")
-    const target = adminUsers.find((u:any)=>u.id===id)
-    if(target?.pseudo === "admin") return alert("Compte protégé")
-    await deleteDoc(doc(db,"admins",id))
+  async function removeAdminUser(id: string) {
+    if (userRole !== "superadmin") return alert("Accès refusé")
+    const target = adminUsers.find((user: any) => user.id === id)
+    if (target?.pseudo === "admin") return alert("Compte protégé")
+    await deleteDoc(doc(db, "admins", id))
     await logAction("Compte admin/mod supprimé")
     loadAll()
   }
 
-  async function sendPrivateReply(){
-    if(!replyTarget || !replyText.trim()) return
-    await addDoc(collection(db,"privateReplies"),{pseudo:replyTarget,message:replyText.trim().slice(0,300),admin:currentUser || "admin",createdAt:Date.now(),read:false})
+  async function updateOrder(id: string, status: OrderStatus) {
+    await updateOrderStatus(id, status as any)
+    await logAction(`Commande passée en ${status}`)
+    loadAll()
+  }
+
+  async function removeOrder(id: string) {
+    await deleteOrder(id)
+    await logAction("Commande supprimée")
+    loadAll()
+  }
+
+  async function saveAuction() {
+    await setDoc(doc(db, "settings", "auction"), { item: auctionItem, step: Number(auctionStep), start: Number(auctionStart) })
+    await logAction("Enchères modifiées")
+  }
+
+  async function saveRewards() {
+    await setDoc(doc(db, "settings", "rewards"), { orders: Number(rewardOrders), percent: Number(rewardPercent) })
+    await logAction("Récompenses modifiées")
+  }
+
+  async function sendPrivateReply() {
+    if (!replyTarget || !replyText.trim()) return
+    await addDoc(collection(db, "privateReplies"), {
+      pseudo: replyTarget,
+      message: replyText.trim().slice(0, 300),
+      admin: currentUser || "admin",
+      createdAt: Date.now(),
+      read: false,
+    })
     setReplyText("")
     setReplyTarget("")
     alert("Réponse privée envoyée")
   }
 
-  async function sendChat(){
-    if(!chatText.trim()) return
-    await addDoc(collection(db,"staffChat"),{user:currentUser || "Staff",role:userRole,text:chatText.trim().slice(0,300),createdAt:Date.now()})
+  async function sendChat() {
+    if (!chatText.trim()) return
+    await addDoc(collection(db, "staffChat"), {
+      user: currentUser || "Staff",
+      role: userRole,
+      text: chatText.trim().slice(0, 300),
+      createdAt: Date.now(),
+    })
     setChatText("")
     loadAll()
-  }
-
-  function logout() {
-    localStorage.removeItem("admin-auth")
-    localStorage.removeItem("admin-role")
-    localStorage.removeItem("admin-user")
-    location.reload()
   }
 
   async function uploadBanner(file: File) {
@@ -312,16 +314,8 @@ export default function AdminPage() {
     }
   }
 
-  function clearImage() {
-    setImage("")
-  }
-
   async function savePromo() {
-    await setDoc(doc(db, "settings", "promo"), {
-      enabled: promoEnabled,
-      percent: promo,
-    })
-
+    await setDoc(doc(db, "settings", "promo"), { enabled: promoEnabled, percent: promo })
     await logAction("Promo modifiée")
     alert("Promo sauvegardée")
   }
@@ -358,14 +352,14 @@ export default function AdminPage() {
     loadAll()
   }
 
-  function editItem(it: any) {
-    setEditId(it.id)
-    setName(it.name)
-    setPrice(String(it.price))
-    setCategory(it.category)
-    setImage(it.image)
-    setStock(String(it.stock))
-    setBuybackLimit(String(it.buybackLimit || 3))
+  function editItem(item: any) {
+    setEditId(item.id)
+    setName(item.name)
+    setPrice(String(item.price))
+    setCategory(item.category)
+    setImage(item.image)
+    setStock(String(item.stock))
+    setBuybackLimit(String(item.buybackLimit || 3))
   }
 
   async function removeItem(id: string) {
@@ -374,74 +368,92 @@ export default function AdminPage() {
     loadAll()
   }
 
-  const stats = useMemo(() => {
-    const totalMoney = orders.reduce(
-      (sum, o: any) => sum + Number(o.total || 0),
-      0
-    )
+  async function updateBuyback(id: string, status: "accepted" | "refused") {
+    await updateDoc(doc(db, "buybackRequests", id), { status })
+    await logAction(status === "accepted" ? "Rachat accepté" : "Rachat refusé")
+    loadAll()
+  }
 
-    const pending = orders.filter((o: any) => (o.status || "pending") === "pending").length
+  async function deleteBuyback(id: string) {
+    await deleteDoc(doc(db, "buybackRequests", id))
+    await logAction("Rachat supprimé")
+    loadAll()
+  }
 
-    return {
-      totalMoney,
-      pending,
+  async function clearFinishedBuybacks() {
+    const finished = buybacks.filter((buyback: any) => buyback.status === "accepted" || buyback.status === "refused")
+    for (const buyback of finished) {
+      await deleteDoc(doc(db, "buybackRequests", buyback.id))
     }
+    await logAction("Rachats terminés vidés")
+    loadAll()
+  }
+
+  const stats = useMemo(() => {
+    const totalMoney = orders.reduce((sum, order: any) => sum + Number(order.total || 0), 0)
+    const pending = orders.filter((order: any) => (order.status || "pending") === "pending").length
+    return { totalMoney, pending }
   }, [orders])
 
-  const filteredItems = items.filter((x: any) => {
-    const matchSearch = x.name?.toLowerCase().includes(search.toLowerCase())
-    const s = Number(x.stock || 0)
-    const matchStock = stockFilter === "all" ? true : stockFilter === "rupture" ? s === 0 : stockFilter === "faible" ? s > 0 && s <= 3 : s > 3
-    return matchSearch && matchStock
-  })
+  const categories = useMemo(() => [...new Set(items.map((item: any) => item.category).filter(Boolean))] as string[], [items])
 
-  const topClient = (() => {
-    const map: any = {}
+  const filteredItems = useMemo(
+    () =>
+      items.filter((item: any) => {
+        const matchSearch = item.name?.toLowerCase().includes(search.toLowerCase())
+        const stockValue = Number(item.stock || 0)
+        const matchStock =
+          stockFilter === "all"
+            ? true
+            : stockFilter === "rupture"
+              ? stockValue === 0
+              : stockFilter === "faible"
+                ? stockValue > 0 && stockValue <= 3
+                : stockValue > 3
+        const matchCategory = categoryFilter === "all" ? true : item.category === categoryFilter
+        return matchSearch && matchStock && matchCategory
+      }),
+    [items, search, stockFilter, categoryFilter],
+  )
 
-    orders.forEach((o: any) => {
-      const n = o.pseudo || "Inconnu"
-      map[n] = (map[n] || 0) + 1
+  const topClient = useMemo(() => {
+    const map: Record<string, number> = {}
+    orders.forEach((order: any) => {
+      const name = order.playerName || order.pseudo || order.user || "Inconnu"
+      map[name] = (map[name] || 0) + 1
     })
+    return Object.entries(map).sort((a, b) => Number(b[1]) - Number(a[1]))[0]?.[0] || "Aucun"
+  }, [orders])
 
-    const sorted = Object.entries(map).sort(
-      (a: any, b: any) => Number(b[1]) - Number(a[1])
-    )
+  const todayOrders = useMemo(
+    () =>
+      orders.filter((order: any) => {
+        try {
+          const date = new Date(order.createdAt?.seconds ? order.createdAt.seconds * 1000 : order.createdAt)
+          return date.toDateString() === new Date().toDateString()
+        } catch {
+          return false
+        }
+      }).length,
+    [orders],
+  )
 
-    return sorted[0]?.[0] || "Aucun"
-  })()
+  const buybackMetrics = useMemo<BuybackMetrics>(() => {
+    const accepted = buybacks.filter((buyback: any) => buyback.status === "accepted")
+    const totalPaid = accepted.reduce((sum: number, buyback: any) => {
+      const match: any = items.find((item: any) => item.name?.toLowerCase() === String(buyback.item || "").toLowerCase()) || {}
+      return sum + Math.round(Number(match.price || 0) * 0.5 * Number(buyback.quantity || 0))
+    }, 0)
+    const topItem = topBy(accepted, (buyback: any) => buyback.item, (buyback: any) => Number(buyback.quantity || 0))
+    const topSupplier = topBy(accepted, (buyback: any) => buyback.pseudo, () => 1)
+    return { totalPaid, topItem, topSupplier }
+  }, [buybacks, items])
 
-  const todayOrders = orders.filter((o: any) => {
-    try {
-      const d = new Date(
-        o.createdAt?.seconds
-          ? o.createdAt.seconds * 1000
-          : o.createdAt
-      )
+  const criticalStock = items.filter((item: any) => Number(item.stock) <= 3).length
 
-      return (
-        d.toDateString() ===
-        new Date().toDateString()
-      )
-    } catch {
-      return false
-    }
-  }).length
-
-  const buybackAccepted = buybacks.filter((b:any)=>b.status === "accepted")
-  const totalBuybackPaid = buybackAccepted.reduce((sum:number,b:any)=>{
-    const match:any = items.find((it:any)=>it.name?.toLowerCase()===String(b.item||"").toLowerCase()) || {}
-    return sum + Math.round((Number(match.price||0)*0.5)*Number(b.quantity||0))
-  },0)
-  const topSoldItem = (()=>{ const m:any={}; buybackAccepted.forEach((b:any)=>{m[b.item]=(m[b.item]||0)+Number(b.quantity||0)}); return Object.entries(m).sort((a:any,b:any)=>Number(b[1])-Number(a[1]))[0]?.[0] || "Aucun" })()
-  const topSupplier = (()=>{ const m:any={}; buybackAccepted.forEach((b:any)=>{m[b.pseudo]=(m[b.pseudo]||0)+1}); return Object.entries(m).sort((a:any,b:any)=>Number(b[1])-Number(a[1]))[0]?.[0] || "Aucun" })()
-
-  const criticalStock = items.filter(
-    (i: any) => Number(i.stock) <= 3
-  ).length
-
-  function stockBadge(v: number) {
-    if (v === 0) return "Rupture"
-    if (v <= 3) return "Faible"
+  function stockBadge(value: number) {
+    if (value === 0) return "Rupture"
+    if (value <= 3) return "Faible"
     return "OK"
   }
 
@@ -450,30 +462,9 @@ export default function AdminPage() {
       <main style={styles.loginPage}>
         <div style={styles.card}>
           <h1>🔐 Admin</h1>
-
-          <input
-            style={styles.input}
-            placeholder="Login"
-            value={login}
-            onChange={(e) =>
-              setLogin(e.target.value)
-            }
-          />
-
-          <input
-            style={styles.input}
-            type="password"
-            placeholder="Code"
-            value={pass}
-            onChange={(e) =>
-              setPass(e.target.value)
-            }
-          />
-
-          <button
-            style={styles.button}
-            onClick={connect}
-          >
+          <input style={styles.input} placeholder="Login" value={login} onChange={(event) => setLogin(event.target.value)} />
+          <input style={styles.input} type="password" placeholder="Code" value={pass} onChange={(event) => setPass(event.target.value)} />
+          <button style={styles.button} onClick={connect}>
             Connexion
           </button>
         </div>
@@ -482,625 +473,179 @@ export default function AdminPage() {
   }
 
   return (
-    <main style={styles.page}>
-      <aside style={styles.sidebar}>
-        <h2>☢ BUNKER ADMIN</h2>
-        <div style={{...styles.hud, boxShadow: pulse ? "0 0 18px rgba(0,255,204,.45)" : "0 0 4px rgba(0,255,204,.15)"}}>🕒 {clock}</div>
-        <div style={styles.radar}>📡 LIVE SYSTEM</div>
-        <div style={styles.statusBar}>DEFCON 1 • SECURE NODE • ONLINE</div>
-
-        <button
-          style={styles.button}
-          onClick={() =>
-            setTab("dashboard")
-          }
-        >
-          📊 Dashboard
-        </button>
-
-        <button
-          style={styles.button}
-          onClick={() =>
-            setTab("orders")
-          }
-        >
-          📦 Commandes
-          {stats.pending > 0 &&
-            ` (${stats.pending})`}
-        </button>
-
-        <button
-          style={styles.button}
-          onClick={() =>
-            setTab("items")
-          }
-        >
-          🔫 Boutique
-        </button>
-
-        <button
-          style={styles.button}
-          onClick={() =>
-            setTab("promo")
-          }
-        >
-          💸 Promotions
-        </button>
-
-        <button
-          style={styles.button}
-          onClick={() =>
-            setTab("banner")
-          }
-        >
-          🖼 Bannière
-        </button>
-
-        <button style={styles.button} onClick={() => setTab("auction")}>💰 Enchères</button>
-        <button style={styles.button} onClick={() => setTab("rewards")}>🎁 Réductions</button>
-        <button style={styles.button} onClick={() => { setTab("buybacks"); setBuybackUnread(0) }}>
-          {`♻️ Rachats${buybackUnread > 0 ? ` (${buybackUnread})` : ""}`}
-        </button>
-        {userRole !== "moderator" && (
-          <button
-            style={styles.button}
-            onClick={() => setTab("users")}
-          >
-            👮 Accès
-          </button>
-        )}
-
-        <button
-          style={styles.button}
-          onClick={() => {
-            setTab("chat")
-            setChatUnread(0)
-          }}
-        >
-          {`💬 Chat Staff${chatUnread > 0 ? ` (${chatUnread})` : ""}`}
-        </button>
-
-        <button
-          style={styles.button}
-          onClick={() =>
-            setTab("logs")
-          }
-        >
-          📜 Logs
-        </button>
-
-        <button
-          style={styles.button}
-          onClick={logout}
-        >
-          🚪 Logout
-        </button>
-      </aside>
+    <main style={{ ...styles.shell, background: SAAS_THEME.background }}>
+      <Sidebar
+        tab={tab}
+        clock={clock}
+        pendingOrders={stats.pending}
+        chatUnread={chatUnread}
+        buybackUnread={buybackUnread}
+        onSelectTab={selectTab}
+        onLogout={logout}
+      />
 
       <section style={styles.content}>
-        {notif && (
-          <div style={styles.notif}>
-            {notif}
-          </div>
-        )}
+        {notif && <div style={styles.notif}>{notif}</div>}
 
         {tab === "dashboard" && (
-          <div>
-            <div style={{display:"flex",alignItems:"center",gap:14,marginBottom:10}}><h1 style={{margin:0}}>🩸 Armurerie Sauce Sanguine</h1><img src="/logo.png" alt="Logo serveur" style={{width:72,height:72,objectFit:"contain",filter:"drop-shadow(0 0 10px rgba(0,255,204,.45))"}} /></div>
-
-            <div style={styles.grid}>
-              <div style={styles.card}><h3>🚨 Alertes</h3><p>{stats.pending > 0 ? `${stats.pending} commande(s)` : "RAS"}</p></div>
-              <div style={styles.card}><h3>📈 Revenus moyen</h3><p>{orders.length ? Math.round(stats.totalMoney / orders.length) : 0}$</p></div>
-              <div style={styles.card}>
-                <h3>💰 Chiffre total</h3>
-                <p>
-                  {stats.totalMoney} $
-                </p>
-              </div>
-
-              <div style={styles.card}>
-                <h3>📦 Total commandes</h3>
-                <p>{orders.length}</p>
-              </div>
-
-              <div style={styles.card}>
-                <h3>⏳ En attente</h3>
-                <p>{stats.pending}</p>
-              </div>
-
-              <div style={styles.card}>
-                <h3>📅 Aujourd’hui</h3>
-                <p>{todayOrders}</p>
-              </div>
-
-              <div style={styles.card}>
-                <h3>🏆 Top client</h3>
-                <p>{topClient}</p>
-              </div>
-
-              <div style={styles.card}><h3>⚠ Stock critique</h3><p>{criticalStock}</p></div>
-              <div style={styles.card}><h3>💸 Total rachats payés</h3><p>{totalBuybackPaid}$</p></div>
-              <div style={styles.card}><h3>📦 Item le + revendu</h3><p>{topSoldItem}</p></div>
-              <div style={styles.card}><h3>👑 Top fournisseur</h3><p>{topSupplier}</p></div>
-            </div>
-          </div>
+          <Dashboard
+            stats={stats}
+            orderCount={orders.length}
+            todayOrders={todayOrders}
+            topClient={topClient}
+            criticalStock={criticalStock}
+            buybacks={buybackMetrics}
+          />
         )}
 
         {tab === "orders" && (
-          <div>
-            <h1>Commandes PRO</h1>
-            {[
-              { key: 'pending', title: '📦 Commandes en attente' },
-              { key: 'delivered', title: '✅ Commandes validées' },
-              { key: 'refused', title: '❌ Commandes refusées' },
-            ].map((section:any) => {
-              const list = orders.filter((o:any) => (o.status || 'pending') === section.key)
-              return (
-                <div key={section.key} style={{marginBottom:24}}>
-                  <h2 style={{marginBottom:10}}>{section.title} ({list.length})</h2>
-                  {list.length === 0 && <div style={styles.card}>Aucune commande</div>}
-                  {list.map((o:any) => (
-                    <div key={o.id} style={styles.card}>
-                      <b>{o.pseudo || 'Joueur'}</b> — {o.total}$ — {(o.status || 'pending')}
-                      <div style={{marginTop:8,fontSize:14,opacity:.95}}>
-                        {o.items?.length ? o.items.map((it:any,idx:number)=><div key={idx}>• {it.name} x{it.quantity}</div>) : <div>Aucun détail article</div>}
-                        {o.priority && <div style={{marginTop:6}}>🚚 Priorité : {o.priority}</div>}
-                      </div>
-                      <div style={{marginTop:8}}>
-                        {section.key === 'pending' && <>
-                          <button style={styles.button} onClick={() => updateOrderStatus(o.id,'delivered' as any)}>✔ Livrer</button>
-                          <button style={styles.button} onClick={() => updateOrderStatus(o.id,'refused' as any)}>❌ Refuser</button>
-                        </>}
-                        {section.key !== 'pending' && <button style={styles.button} onClick={() => updateOrderStatus(o.id,'pending' as any)}>↩ Remettre attente</button>}
-                        <button style={styles.button} onClick={() => deleteOrder(o.id)}>🗑 Supprimer</button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )
-            })}
-          </div>
+          <Orders
+            orders={orders}
+            search={search}
+            stats={stats}
+            topClient={topClient}
+            onSearch={setSearch}
+            onUpdateStatus={updateOrder}
+            onDelete={removeOrder}
+          />
         )}
 
         {tab === "items" && (
-          <div>
-            <h1>Boutique CRUD</h1>
-
-            <input
-              style={styles.input}
-              placeholder="Recherche..."
-              value={search}
-              onChange={(e) =>
-                setSearch(e.target.value)
-              }
-            />
-
-            <select
-              style={styles.input}
-              value={stockFilter}
-              onChange={(e) => setStockFilter(e.target.value)}
-            >
-              <option value="all">Tous stocks</option>
-              <option value="rupture">Rupture</option>
-              <option value="faible">Stock faible</option>
-              <option value="ok">Stock OK</option>
-            </select>
-
-            <div style={styles.card}>
-              <input
-                style={styles.input}
-                placeholder="Nom"
-                value={name}
-                onChange={(e) =>
-                  setName(e.target.value)
-                }
-              />
-
-              <input
-                style={styles.input}
-                placeholder="Prix"
-                value={price}
-                onChange={(e) =>
-                  setPrice(e.target.value)
-                }
-              />
-
-              <select
-                style={styles.input}
-                value={category}
-                onChange={(e) => setCategory(e.target.value)}
-              >
-                <option value="">Catégorie</option>
-                {[...new Set(items.map((x:any) => x.category).filter(Boolean))].map((cat:any) => (
-                  <option key={cat} value={cat}>{cat}</option>
-                ))}
-              </select>
-
-              <input
-                style={styles.input}
-                placeholder="Image URL"
-                value={image}
-                onChange={(e) =>
-                  setImage(e.target.value)
-                }
-              />
-
-              <input
-                type="file"
-                accept="image/*"
-                onChange={(e) => {
-                  const file = e.target.files?.[0]
-                  if (file) uploadItemImage(file)
-                }}
-              />
-
-              {itemFileUploading && <p>Upload image...</p>}
-
-              {image && (
-                <div>
-                  <img src={image} style={{ width: 120, height: 120, objectFit: "cover", borderRadius: 10, border: "1px solid #00ffcc" }} />
-                  <div>
-                    <button style={styles.button} onClick={clearImage}>❌ Retirer image</button>
-                  </div>
-                </div>
-              )}
-
-              <input
-                style={styles.input}
-                placeholder="Stock actuel"
-                value={stock}
-                onChange={(e) =>
-                  setStock(e.target.value)
-                }
-              />
-
-              <input
-                style={styles.input}
-                placeholder="Limite rachat"
-                value={buybackLimit}
-                onChange={(e)=>setBuybackLimit(e.target.value)}
-              />
-
-              <button
-                style={styles.button}
-                onClick={saveItem}
-              >
-                {editId
-                  ? "💾 Modifier"
-                  : "➕ Ajouter"}
-              </button>
-
-              {editId && (
-                <button
-                  style={styles.button}
-                  onClick={resetForm}
-                >
-                  Annuler
-                </button>
-              )}
-            </div>
-
-            {filteredItems.map(
-              (it: any) => (
-                <div
-                  key={it.id}
-                  style={{...styles.card, ...(Number(it.stock) === 0 ? styles.cardDanger : Number(it.stock) <= 3 ? styles.cardWarn : styles.cardOk)}}
-                >
-                  {it.image && (<img src={it.image} style={{width:72,height:72,objectFit:"cover",borderRadius:10,border:"1px solid #00ffcc",marginBottom:10}} />)}<b>{it.name}</b> — 
-                  {it.price}$ —
-                  Stock {it.stock} • Rachat max {it.buybackLimit || 3} (
-                  {stockBadge(
-                    Number(it.stock)
-                  )}
-                  )
-
-                  <div
-                    style={{
-                      marginTop: 8,
-                    }}
-                  >
-                    <button
-                      style={styles.button}
-                      onClick={() =>
-                        editItem(it)
-                      }
-                    >
-                      ✏ Modifier
-                    </button>
-
-                    <button
-                      style={styles.button}
-                      onClick={() =>
-                        removeItem(
-                          it.id
-                        )
-                      }
-                    >
-                      🗑 Supprimer
-                    </button>
-                  </div>
-                </div>
-              )
-            )}
-          </div>
+          <Catalog
+            items={items}
+            filteredItems={filteredItems}
+            categories={categories}
+            search={search}
+            stockFilter={stockFilter}
+            categoryFilter={categoryFilter}
+            editId={editId}
+            name={name}
+            price={price}
+            category={category}
+            image={image}
+            stock={stock}
+            buybackLimit={buybackLimit}
+            itemFileUploading={itemFileUploading}
+            onSearch={setSearch}
+            onStockFilter={setStockFilter}
+            onCategoryFilter={setCategoryFilter}
+            onName={setName}
+            onPrice={setPrice}
+            onCategory={setCategory}
+            onImage={setImage}
+            onStock={setStock}
+            onBuybackLimit={setBuybackLimit}
+            onUploadImage={uploadItemImage}
+            onClearImage={() => setImage("")}
+            onSave={saveItem}
+            onReset={resetForm}
+            onEdit={editItem}
+            onRemove={removeItem}
+            stockBadge={stockBadge}
+          />
         )}
 
         {tab === "promo" && (
-          <div>
-            <h1>Promotions</h1>
-
-            <label>
-              <input
-                type="checkbox"
-                checked={
-                  promoEnabled
-                }
-                onChange={(e) =>
-                  setPromoEnabled(
-                    e.target.checked
-                  )
-                }
-              />{" "}
-              Activer
-            </label>
-
-            <div
-              style={{
-                marginTop: 10,
-              }}
-            >
-              <input
-                style={styles.input}
-                type="number"
-                min="0"
-                max="20"
-                value={promo}
-                onChange={(e) =>
-                  setPromo(
-                    Number(
-                      e.target.value
-                    )
-                  )
-                }
-              />
-
-              <button
-                style={styles.button}
-                onClick={savePromo}
-              >
-                💾 Sauvegarder
-              </button>
-            </div>
-          </div>
+          <Promotions enabled={promoEnabled} percent={promo} onEnabled={setPromoEnabled} onPercent={setPromo} onSave={savePromo} />
         )}
 
-        {tab === "banner" && (
-          <div>
-            <h1>Bannière Boutique</h1>
-            <input type="file" accept="image/*" onChange={(e) => {
-              const file = e.target.files?.[0]
-              if (file) uploadBanner(file)
-            }} />
-            {uploading && <p>Upload...</p>}
-            {bannerUrl && (
-              <>
-                <img src={bannerUrl} style={{ width:"100%", maxWidth:700, marginTop:20, borderRadius:12, border:"1px solid #00ffcc" }} />
-                <div>
-                  <button style={styles.button} onClick={deleteBanner}>🗑 Supprimer bannière</button>
-                </div>
-              </>
-            )}
-          </div>
-        )}
+        {tab === "banner" && <Banner bannerUrl={bannerUrl} uploading={uploading} onUpload={uploadBanner} onDelete={deleteBanner} />}
 
         {tab === "auction" && (
-          <div>
-            <h1>Gestion Enchères</h1>
-            <div style={styles.card}>
-              <select style={styles.input} value={auctionItem} onChange={(e)=>setAuctionItem(e.target.value)}>
-                <option value="">Choisir un item</option>
-                {items.map((it:any)=><option key={it.id} value={it.id}>{it.name}</option>)}
-              </select>
-              <input style={styles.input} placeholder="Prix départ" value={auctionStart} onChange={(e)=>setAuctionStart(e.target.value)} />
-              <input style={styles.input} placeholder="Pas enchère" value={auctionStep} onChange={(e)=>setAuctionStep(e.target.value)} />
-              <button style={styles.button} onClick={saveAuction}>💾 Sauvegarder</button>
-            </div>
-          </div>
+          <Auction
+            items={items}
+            auctionItem={auctionItem}
+            auctionStart={auctionStart}
+            auctionStep={auctionStep}
+            onItem={setAuctionItem}
+            onStart={setAuctionStart}
+            onStep={setAuctionStep}
+            onSave={saveAuction}
+          />
         )}
 
         {tab === "rewards" && (
-          <div>
-            <h1>Coupons Réduction</h1>
-            <div style={styles.card}>
-              <input style={styles.input} placeholder="Nb commandes" value={rewardOrders} onChange={(e)=>setRewardOrders(e.target.value)} />
-              <input style={styles.input} placeholder="Pourcentage %" value={rewardPercent} onChange={(e)=>setRewardPercent(e.target.value)} />
-              <button style={styles.button} onClick={saveRewards}>💾 Sauvegarder</button>
-            </div>
-          </div>
-        )}
-
-        {tab === "buybacks" && (
-          <div>
-            <h1>♻️ Rachat Stock Joueurs</h1>
-            <div style={styles.card}>
-              <button style={styles.button} onClick={()=>setBuybackFilter("all")}>Tous ({buybacks.length})</button>
-              <button style={styles.button} onClick={clearFinishedBuybacks}>🧹 Vider terminés</button>
-              <button style={styles.button} onClick={()=>setBuybackFilter("pending")}>⏳ En attente ({buybacks.filter((x:any)=>x.status==="pending").length})</button>
-              <button style={styles.button} onClick={()=>setBuybackFilter("accepted")}>✅ Acceptés ({buybacks.filter((x:any)=>x.status==="accepted").length})</button>
-              <button style={styles.button} onClick={()=>setBuybackFilter("refused")}>❌ Refusés ({buybacks.filter((x:any)=>x.status==="refused").length})</button>
-            </div>
-            
-            {buybacks.filter((x:any)=>buybackFilter==="all" ? true : x.status===buybackFilter).length === 0 && <div style={styles.card}>Aucune demande</div>}
-            {buybacks.filter((x:any)=>buybackFilter==="all" ? true : x.status===buybackFilter).map((b:any)=>(
-              <div key={b.id} style={styles.card}>
-                <b>{b.pseudo}</b> — {b.item} x{b.quantity} <span style={{opacity:.8}}>(50% auto)</span>
-                <div style={{marginTop:6}}>💰 {Math.round((Number(items.find((it:any)=>it.name?.toLowerCase()===String(b.item||'').toLowerCase())?.price || 0) * 0.5) * Number(b.quantity||0))}$ • Statut : {b.status}</div>
-                <div style={{marginTop:8}}>
-                  <button style={styles.button} onClick={async()=>{const match = items.find((it:any)=>it.name?.toLowerCase() === String(b.item||'').toLowerCase()); const payout = Math.round((Number(match?.price || 0) * 0.5) * Number(b.quantity||0)); if(match){await updateDoc(doc(db,"weapons",match.id),{stock:Number(match.stock||0)+Number(b.quantity||0)})} await updateDoc(doc(db,"buybackRequests",b.id),{status:"accepted"}); await addDoc(collection(db,"privateReplies"),{pseudo:b.pseudo,message:`Votre vente ${b.item} x${b.quantity} a été acceptée. Paiement: ${payout}$`,admin:currentUser || "admin",createdAt:Date.now(),read:false}); await logAction(`Rachat accepté ${b.pseudo} ${b.item} x${b.quantity}`); setBuybacks(prev=>prev.map((x:any)=>x.id===b.id?{...x,status:"accepted"}:x))}}>✅ Accepter</button>
-                  <button style={styles.button} onClick={async()=>{await updateDoc(doc(db,"buybackRequests",b.id),{status:"refused"}); await addDoc(collection(db,"privateReplies"),{pseudo:b.pseudo,message:`Votre vente ${b.item} x${b.quantity} a été refusée.`,admin:currentUser || "admin",createdAt:Date.now(),read:false}); await logAction(`Rachat refusé ${b.pseudo} ${b.item}`); setBuybacks(prev=>prev.map((x:any)=>x.id===b.id?{...x,status:"refused"}:x))}}>❌ Refuser</button>
-                  <button style={styles.button} onClick={async()=>{await updateDoc(doc(db,"buybackRequests",b.id),{status:"pending"}); setBuybacks(prev=>prev.map((x:any)=>x.id===b.id?{...x,status:"pending"}:x))}}>⏳ Attente</button>
-                  <button style={styles.button} onClick={()=>deleteBuyback(b.id)}>🗑 Supprimer</button>
-                </div>
-              </div>
-            ))}
-          </div>
+          <Rewards
+            rewardOrders={rewardOrders}
+            rewardPercent={rewardPercent}
+            onOrders={setRewardOrders}
+            onPercent={setRewardPercent}
+            onSave={saveRewards}
+          />
         )}
 
         {tab === "users" && (
-          <div>
-            <h1>Gestion Accès</h1>
-            <div style={styles.card}>
-              <input style={styles.input} placeholder="Pseudo" value={newPseudo} onChange={(e)=>setNewPseudo(e.target.value)} />
-              <input style={styles.input} placeholder="Code" value={newCode} onChange={(e)=>setNewCode(e.target.value)} />
-              <select style={styles.input} value={newRole} onChange={(e)=>setNewRole(e.target.value)}>
-                <option value="moderator">Modérateur</option>
-                <option value="admin">Admin</option>
-              </select>
-              <button style={styles.button} onClick={saveAdminUser}>➕ Ajouter accès</button>
-            </div>
-            {adminUsers.map((u:any)=>(
-              <div key={u.id} style={styles.card}>
-                <b>{u.pseudo}</b> — {u.role}
-                <button style={styles.button} onClick={()=>removeAdminUser(u.id)}>🗑 Supprimer</button>
-              </div>
-            ))}
-          </div>
+          <StaffPermissions
+            adminUsers={adminUsers}
+            newPseudo={newPseudo}
+            newCode={newCode}
+            newRole={newRole}
+            onPseudoChange={setNewPseudo}
+            onCodeChange={setNewCode}
+            onRoleChange={setNewRole}
+            onSave={saveAdminUser}
+            onRemove={removeAdminUser}
+          />
         )}
 
         {tab === "chat" && (
-          <div>
-            <h1>Chat Staff / Joueurs</h1>
-            <div style={styles.card}>🟢 Connecté : {currentUser} ({userRole}) • {staffOnline ? "🟢 Support actif" : "⚫ Aucun staff actif"}</div>
-            <div style={{maxHeight:420,overflowY:"auto",display:"flex",flexDirection:"column-reverse"}}>
-              {[...chatMessages].reverse().map((m:any)=>(
-              <div key={m.id} style={{...styles.card,borderColor:m.role === "superadmin" ? "#ff4040" : m.role === "admin" ? "#ffaa00" : "#00ffcc"}}>
-                <b>{m.user}</b> [{m.role}] • {new Date(m.createdAt || Date.now()).toLocaleTimeString("fr-FR",{hour:"2-digit",minute:"2-digit"})}
-                <div style={{marginTop:6}}>{m.text}</div>
-                {m.role === "joueur" && <button style={styles.button} onClick={()=>setReplyTarget(m.user)}>📩 Répondre</button>}
-              </div>
-            ))}
-            </div>
-            {replyTarget && <div style={styles.card}><h3>📩 Réponse privée à {replyTarget}</h3><input style={styles.input} placeholder="Votre réponse..." value={replyText} onChange={(e)=>setReplyText(e.target.value)} /><button style={styles.button} onClick={sendPrivateReply}>Envoyer réponse</button></div>}
-            <div style={styles.card}>
-              <input style={styles.input} placeholder="Message..." value={chatText} onChange={(e)=>setChatText(e.target.value)} onKeyDown={(e)=>{if(e.key==='Enter') sendChat()}} />
-              <button style={styles.button} onClick={sendChat}>Envoyer</button>
-            </div>
-          </div>
+          <Chat
+            chatMessages={chatMessages}
+            chatText={chatText}
+            replyTarget={replyTarget}
+            replyText={replyText}
+            staffOnline={staffOnline}
+            onChatTextChange={setChatText}
+            onReplyTargetChange={setReplyTarget}
+            onReplyTextChange={setReplyText}
+            onSendChat={sendChat}
+            onSendPrivateReply={sendPrivateReply}
+          />
         )}
 
-        {tab === "logs" && (
-          <div>
-            <h1>Logs</h1>
-
-            {logs.map((l: any) => (
-              <div
-                key={l.id}
-                style={styles.card}
-              >
-                <span>{l.message}</span>
-              </div>
-            ))}
-          </div>
+        {tab === "buybacks" && (
+          <Buybacks
+            buybacks={buybacks}
+            items={items}
+            filter={buybackFilter}
+            metrics={buybackMetrics}
+            onFilterChange={setBuybackFilter}
+            onAccept={(id) => updateBuyback(id, "accepted")}
+            onRefuse={(id) => updateBuyback(id, "refused")}
+            onDelete={deleteBuyback}
+            onClearFinished={clearFinishedBuybacks}
+          />
         )}
+
+        {tab === "logs" && <Logs logs={logs} />}
       </section>
     </main>
   )
 }
 
-const styles: any = {
-  page: {
-    minHeight: "100vh",
-    display: "grid",
-    gridTemplateColumns:
-      "240px 1fr",
-    background: "radial-gradient(circle at top, #1a1a1a 0%, #050505 55%, #000 100%)",
-    color: "#00ffcc",
-  },
+function sortBuybacks(a: any, b: any, items: any[]) {
+  const getItem = (name: any) => items.find((item: any) => item.name?.toLowerCase() === String(name || "").toLowerCase()) || {}
+  const itemA: any = getItem(a.item)
+  const itemB: any = getItem(b.item)
+  const needA = Math.max(0, Number(itemA.buybackLimit || 3) - Number(itemA.stock || 0))
+  const needB = Math.max(0, Number(itemB.buybackLimit || 3) - Number(itemB.stock || 0))
+  const priorityA = Number(itemA.stock || 0) === 0 ? 3 : Number(itemA.stock || 0) <= 3 ? 2 : 1
+  const priorityB = Number(itemB.stock || 0) === 0 ? 3 : Number(itemB.stock || 0) <= 3 ? 2 : 1
+  const payA = Math.round(Number(itemA.price || 0) * 0.5 * Number(a.quantity || 0))
+  const payB = Math.round(Number(itemB.price || 0) * 0.5 * Number(b.quantity || 0))
 
-  loginPage: {
-    minHeight: "100vh",
-    display: "grid",
-    placeItems: "center",
-    background: "#000",
-    color: "#00ffcc",
-  },
+  if ((a.status || "pending") !== (b.status || "pending")) return a.status === "pending" ? -1 : 1
+  if (priorityA !== priorityB) return priorityB - priorityA
+  if (needA !== needB) return needB - needA
+  if (payA !== payB) return payB - payA
+  return Number(a.createdAt || 0) - Number(b.createdAt || 0)
+}
 
-  sidebar: {
-    padding: 20,
-    alignContent:"start",
-    borderRight:
-      "1px solid #00ffcc",
-    boxShadow:"0 0 25px rgba(0,255,204,.15)",
-    display: "grid",
-    gap: 10,
-  },
-
-  content: {
-    padding: 20,
-    backgroundImage:"linear-gradient(rgba(0,255,204,.03) 1px, transparent 1px), linear-gradient(90deg, rgba(0,255,204,.03) 1px, transparent 1px)",
-    backgroundSize:"24px 24px",
-  },
-
-  grid: {
-    display: "grid",
-    gridTemplateColumns:
-      "repeat(auto-fit,minmax(220px,1fr))",
-    gap: 14,
-    marginTop: 20,
-  },
-
-  card: {
-    backdropFilter:"blur(6px)",
-    border:
-      "1px solid #00ffcc",
-    background:"rgba(15,15,15,.88)",
-    boxShadow:"0 0 14px rgba(0,255,204,.12)",
-    padding: 12,
-    borderRadius: 10,
-    marginBottom: 12,
-  },
-
-  input: {
-    padding: 10,
-    background: "#000",
-    color: "#00ffcc",
-    border:
-      "1px solid #00ffcc",
-    borderRadius: 8,
-    margin: 4,
-  },
-
-  button: {
-    fontWeight:"bold",
-    padding:
-      "10px 12px",
-    background: "#000",
-    color: "#00ffcc",
-    border:
-      "1px solid #00ffcc",
-    borderRadius: 8,
-    cursor: "pointer",
-    transition:"all .2s ease", transform:"translateZ(0)",
-    margin: 4,
-  },
-
-  hud:{padding:6,border:"1px solid #00ffcc",borderRadius:8,textAlign:"center",fontSize:11,marginBottom:8,maxWidth:170},
-  radar:{padding:6,border:"1px dashed #00ffcc",borderRadius:8,textAlign:"center",fontSize:11,opacity:.9,marginBottom:8,letterSpacing:1,maxWidth:170},
-  statusBar:{padding:6,border:"1px solid rgba(255,255,255,.12)",borderRadius:8,textAlign:"center",fontSize:10,marginBottom:8,color:"#9fffe8",background:"rgba(0,255,204,.06)",maxWidth:170},
-
-  cardOk:{border:"1px solid #00ffcc"},
-  cardWarn:{border:"2px solid orange",background:"rgba(255,165,0,.06)",boxShadow:"0 0 18px rgba(255,165,0,.28)"},
-  cardDanger:{border:"2px solid #ff3b3b",background:"rgba(255,0,0,.08)",boxShadow:"0 0 22px rgba(255,0,0,.35)"},
-
-  notif: {
-    padding: 12,
-    marginBottom: 18,
-    border:
-      "1px solid red",
-    color: "#fff",
-    background:
-      "rgba(255,0,0,.22)",
-    borderRadius: 10,
-    fontWeight: "bold",
-  },
+function topBy(list: any[], keyFn: (entry: any) => string, valueFn: (entry: any) => number) {
+  const map: Record<string, number> = {}
+  list.forEach((entry) => {
+    const key = keyFn(entry) || "Inconnu"
+    map[key] = (map[key] || 0) + valueFn(entry)
+  })
+  return Object.entries(map).sort((a, b) => Number(b[1]) - Number(a[1]))[0]?.[0] || "Aucun"
 }
