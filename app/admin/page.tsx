@@ -53,6 +53,7 @@ export default function AdminPage() {
   const [userProfiles, setUserProfiles] = useState<any[]>([])
   const [playerNotes, setPlayerNotes] = useState<PlayerNote[]>([])
   const [chatMessages, setChatMessages] = useState<any[]>([])
+  const [privateReplies, setPrivateReplies] = useState<any[]>([])
 
   const [promoEnabled, setPromoEnabled] = useState(false)
   const [promo, setPromo] = useState(10)
@@ -267,6 +268,10 @@ export default function AdminPage() {
       setPlayerNotes(snap.docs.map((entry) => normalizePlayerNote(entry.id, entry.data())))
     })
 
+    const unsubscribePrivateReplies = onSnapshot(collection(db, "privateReplies"), (snap) => {
+      setPrivateReplies(snap.docs.map((entry) => ({ id: entry.id, ...entry.data() })))
+    })
+
     const ordersQuery = query(collection(db, "orders"), orderBy("createdAt", "desc"))
     const unsubscribeOrders = onSnapshot(ordersQuery, (snap) => {
       const nextOrders: any[] = snap.docs.map((entry) => ({ id: entry.id, ...entry.data() }))
@@ -391,6 +396,7 @@ export default function AdminPage() {
       unsubscribeAdmins()
       unsubscribeUsers()
       unsubscribePlayerNotes()
+      unsubscribePrivateReplies()
       unsubscribeOrders()
       unsubscribeBuybacks()
       unsubscribeStock()
@@ -1000,6 +1006,7 @@ export default function AdminPage() {
             buybacks={buybacks}
             logs={logs}
             chatMessages={chatMessages}
+            privateReplies={privateReplies}
             notes={playerNotes}
             currentRole={userRole}
             currentUser={currentUser}

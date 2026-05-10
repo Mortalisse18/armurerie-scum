@@ -30,8 +30,10 @@ const STATUS_TONES: Record<OrderStatus | "accepted", { color: string; background
   accepted: { color: "#00ff99", background: "rgba(0,255,153,.12)" },
 }
 
-const PLAYER_FIELDS = ["pseudo", "username", "displayName", "steamName", "playerName", "name"]
+const PLAYER_FIELDS = ["pseudo", "username", "playerName", "displayName", "steamName", "client", "buyer", "user", "name"]
 const UID_FIELDS = ["uid", "userId", "playerUid", "playerId", "authUid"]
+const PLAYER_NESTED_FIELDS = ["player", "playerData", "userData", "metadata", "profile", "customer", "buyer", "client"]
+const BAD_PLAYER_VALUES = new Set(["", "joueur", "inconnu", "unknown", "undefined", "null", "player"])
 
 export function PlayerProfiles({
   userProfiles,
@@ -39,6 +41,7 @@ export function PlayerProfiles({
   buybacks,
   logs,
   chatMessages,
+  privateReplies,
   notes,
   currentRole,
   currentUser,
@@ -51,6 +54,7 @@ export function PlayerProfiles({
   buybacks: any[]
   logs: any[]
   chatMessages: any[]
+  privateReplies: any[]
   notes: PlayerNote[]
   currentRole: StaffRole
   currentUser: string
@@ -67,8 +71,8 @@ export function PlayerProfiles({
   const canUseNotes = fullAccess
 
   const players = useMemo(
-    () => buildPlayers(userProfiles, orders, buybacks, chatMessages),
-    [userProfiles, orders, buybacks, chatMessages],
+    () => buildPlayers(userProfiles, orders, buybacks, chatMessages, privateReplies),
+    [userProfiles, orders, buybacks, chatMessages, privateReplies],
   )
 
   const filteredPlayers = useMemo(() => {
@@ -81,11 +85,17 @@ export function PlayerProfiles({
   }, [players, query])
 
   const selected = players.find((player) => player.uid === selectedKey || player.pseudo === selectedKey) || filteredPlayers[0]
+  const communicationEntries = useMemo(() => [...chatMessages, ...privateReplies], [chatMessages, privateReplies])
   const playerOrders = selected ? filterPlayerOrders(orders, selected, currentRole, currentUser) : []
   const playerBuybacks = selected && currentRole !== "delivery" ? filterPlayerEntries(buybacks, selected) : []
-  const playerMessages = selected && currentRole !== "delivery" ? filterPlayerEntries(chatMessages, selected) : []
+  const playerMessages = selected && currentRole !== "delivery" ? filterPlayerEntries(communicationEntries, selected) : []
   const playerLogs = selected && currentRole !== "delivery" ? filterPlayerEntries(logs, selected) : []
-  const playerNotes = selected && currentRole !== "delivery" ? notes.filter((note) => note.uid === selected.uid || note.pseudo === selected.pseudo) : []
+  const playerNotes = selected && currentRole !== "delivery"
+    ? notes.filter((note) =>
+        Boolean(note.uid && selected.uid && note.uid === selected.uid) ||
+        normalizePlayerKey(note.pseudo) === normalizePlayerKey(selected.pseudo),
+      )
+    : []
   const metrics = selected ? getPlayerMetrics(selected, playerOrders, playerBuybacks) : null
 
   function saveNote() {
@@ -135,7 +145,7 @@ export function PlayerProfiles({
                 <span>
                   <b>{player.pseudo}</b>
                   <span style={{ display: "block", color: "#8ba3b8", fontSize: 12, marginTop: 3 }}>
-                    {player.uid || "uid inconnu"}
+                    {player.uid || `pseudo:${normalizePlayerKey(player.pseudo)}`}
                   </span>
                 </span>
               </button>
@@ -154,7 +164,7 @@ export function PlayerProfiles({
                     Player profile
                   </div>
                   <h2 style={{ margin: "6px 0", fontSize: "clamp(26px,3vw,42px)" }}>{selected.pseudo}</h2>
-                  <div style={{ color: "#c9fff4" }}>{selected.uid || "UID inconnu"}</div>
+                  <div style={{ color: "#c9fff4" }}>{selected.uid || `pseudo:${normalizePlayerKey(selected.pseudo)}`}</div>
                 </div>
                 <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "flex-start", justifyContent: "flex-end" }}>
                   <Badge label={selected.type} color="#8ab4ff" />
@@ -435,29 +445,47 @@ function Badge({ label, color, background }: { label: string; color: string; bac
   )
 }
 
-function buildPlayers(userProfiles: any[], orders: any[], buybacks: any[], chatMessages: any[]) {
+function buildPlayers(userProfiles: any[], orders: any[], buybacks: any[], chatMessages: any[], privateReplies: any[]) {
   const map = new Map<string, PlayerProfile>()
 
   const upsert = (source: any, fallbackType: string, activityValue?: unknown) => {
     const pseudo = getPlayerPseudo(source)
     const uid = getPlayerUid(source)
     if (!pseudo && !uid) return
-    const key = uid || pseudo
+    const normalizedPseudo = normalizePlayerKey(pseudo)
+    const existingPseudoKey = normalizedPseudo ? `pseudo:${normalizedPseudo}` : ""
+    const uidKey = uid ? `uid:${uid}` : ""
+    const key = uidKey || findExistingPlayerKey(map, normalizedPseudo) || existingPseudoKey
+    if (!key) return
     const existing = map.get(key)
+    if (uidKey && existingPseudoKey && existingPseudoKey !== uidKey && map.has(existingPseudoKey)) {
+      const pseudoOnly = map.get(existingPseudoKey)
+      map.delete(existingPseudoKey)
+      if (pseudoOnly && !existing) {
+        map.set(uidKey, pseudoOnly)
+      }
+    }
+    const current = map.get(uidKey || key) || existing
     const activity = getTimestampMillis(activityValue || source.lastLogin || source.updatedAt || source.createdAt)
-    map.set(key, {
-      uid: uid || existing?.uid || "",
-      pseudo: pseudo || existing?.pseudo || uid || "Inconnu",
-      type: String(source.role || source.type || fallbackType || existing?.type || "player"),
-      createdAt: source.createdAt || source.metadata?.creationTime || existing?.createdAt,
-      lastActivity: Math.max(existing?.lastActivity || 0, activity),
+    map.set(uidKey || key, {
+      uid: uid || current?.uid || "",
+      pseudo: chooseBestPseudo(current?.pseudo, pseudo, uid),
+      type: String(source.role || source.type || fallbackType || current?.type || "player"),
+      createdAt: source.createdAt || source.metadata?.creationTime || current?.createdAt,
+      lastActivity: Math.max(current?.lastActivity || 0, activity),
     })
   }
 
   userProfiles.forEach((profile) => upsert(profile, "player"))
   orders.forEach((order) => upsert(order, "customer", order.createdAt))
   buybacks.forEach((buyback) => upsert(buyback, "supplier", buyback.createdAt))
-  chatMessages.forEach((message) => upsert({ ...message, pseudo: message.user }, message.role || "chat", message.createdAt))
+  chatMessages
+    .filter((message) => {
+      const role = String(message.role || "").toLowerCase()
+      return role === "joueur" || role === "player" || role === "client"
+    })
+    .forEach((message) => upsert({ ...message, pseudo: message.user }, message.role || "chat", message.createdAt))
+  privateReplies.forEach((reply) => upsert(reply, "private-reply", reply.createdAt))
 
   return [...map.values()].sort((a, b) => b.lastActivity - a.lastActivity || a.pseudo.localeCompare(b.pseudo))
 }
@@ -500,24 +528,74 @@ function matchesPlayer(entry: any, player: PlayerProfile) {
   const uid = getPlayerUid(entry)
   const pseudo = getPlayerPseudo(entry)
   if (player.uid && uid && player.uid === uid) return true
-  return Boolean(player.pseudo && pseudo && player.pseudo.toLowerCase() === pseudo.toLowerCase())
+  return Boolean(player.pseudo && pseudo && normalizePlayerKey(player.pseudo) === normalizePlayerKey(pseudo))
 }
 
-function getPlayerPseudo(source: any) {
+function getPlayerPseudo(source: any, depth = 0): string {
+  if (depth > 3) return ""
+  if (typeof source === "string" || typeof source === "number") return cleanPlayerValue(source)
+  if (!source || typeof source !== "object") return ""
+
   for (const field of PLAYER_FIELDS) {
-    if (typeof source?.[field] === "string" && source[field].trim()) return source[field].trim()
+    const value = cleanPlayerValue(source?.[field])
+    if (value) return value
   }
-  if (typeof source?.user?.pseudo === "string") return source.user.pseudo
-  if (typeof source?.player?.pseudo === "string") return source.player.pseudo
+
+  for (const field of PLAYER_NESTED_FIELDS) {
+    const value = getPlayerPseudo(source?.[field], depth + 1)
+    if (value) return value
+  }
+
   return ""
 }
 
-function getPlayerUid(source: any) {
+function getPlayerUid(source: any, depth = 0): string {
+  if (depth > 3 || !source || typeof source !== "object") return ""
+
   for (const field of UID_FIELDS) {
     if (typeof source?.[field] === "string" && source[field].trim()) return source[field].trim()
   }
-  if (typeof source?.user?.uid === "string") return source.user.uid
-  if (typeof source?.player?.uid === "string") return source.player.uid
+
+  for (const field of PLAYER_NESTED_FIELDS) {
+    const value = getPlayerUid(source?.[field], depth + 1)
+    if (value) return value
+  }
+
+  return ""
+}
+
+function cleanPlayerValue(value: unknown) {
+  if (typeof value !== "string" && typeof value !== "number") return ""
+  const text = String(value).trim()
+  if (BAD_PLAYER_VALUES.has(text.toLowerCase())) return ""
+  return text
+}
+
+function normalizePlayerKey(value: string) {
+  return cleanPlayerValue(value).toLowerCase()
+}
+
+function chooseBestPseudo(current: string | undefined, incoming: string, uid: string) {
+  const currentClean = cleanPlayerValue(current)
+  const incomingClean = cleanPlayerValue(incoming)
+  if (incomingClean && !currentClean) return incomingClean
+  if (incomingClean && currentClean && isBetterPseudo(incomingClean, currentClean)) return incomingClean
+  if (currentClean) return currentClean
+  return uid ? "Inconnu" : "Inconnu"
+}
+
+function isBetterPseudo(candidate: string, current: string) {
+  if (!cleanPlayerValue(current)) return true
+  if (!cleanPlayerValue(candidate)) return false
+  if (candidate.length > current.length && current.length <= 3) return true
+  return false
+}
+
+function findExistingPlayerKey(map: Map<string, PlayerProfile>, normalizedPseudo: string) {
+  if (!normalizedPseudo) return ""
+  for (const [key, player] of map.entries()) {
+    if (normalizePlayerKey(player.pseudo) === normalizedPseudo) return key
+  }
   return ""
 }
 
