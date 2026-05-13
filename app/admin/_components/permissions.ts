@@ -89,7 +89,7 @@ function allPermissions(value: boolean): StaffPermissions {
 }
 
 export function normalizeRole(role: unknown): StaffRole {
-  if (role === "owner" || role === "superadmin") return "owner"
+  if (role === "owner" || role === "superadmin" || role === "founder") return "owner"
   if (role === "admin") return "admin"
   if (role === "moderator") return "moderator"
   if (role === "delivery" || role === "livreur") return "delivery"

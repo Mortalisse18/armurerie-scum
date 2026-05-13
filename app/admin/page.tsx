@@ -157,6 +157,7 @@ export default function AdminPage() {
 
   async function loadAdmins() {
     const snap = await getDocs(collection(db, "admins"))
+    await migrateLegacyAdmins(snap.docs)
     setAdminUsers(snap.docs.map((entry) => normalizeStaffMember(entry.id, entry.data())))
   }
 
@@ -212,7 +213,7 @@ export default function AdminPage() {
 
   useEffect(() => {
     loadAdmins()
-    if (localStorage.getItem("admin-auth") === "ok") {
+    if (localStorage.getItem("admin-auth") === "true" || localStorage.getItem("admin-auth") === "ok") {
       const role = normalizeRole(localStorage.getItem("admin-role"))
       const permissions = normalizePermissions(parseStoredPermissions(), role)
       setUserRole(role)
@@ -404,23 +405,63 @@ export default function AdminPage() {
     }
   }, [authOk, tab])
 
-  function connect() {
-    const found = adminUsers.find((user: any) => user.pseudo === login && user.code === pass)
-    if ((login === "admin" && pass === "Armory781228") || found) {
-      const role = found?.role || (login === "admin" ? "owner" : "admin")
-      const permissions = found?.permissions || permissionsForRole(role)
-      localStorage.setItem("admin-auth", "ok")
-      localStorage.setItem("admin-role", role)
-      localStorage.setItem("admin-permissions", JSON.stringify(permissions))
-      localStorage.setItem("admin-user", login)
-      setUserRole(role)
-      setCurrentPermissions(permissions)
-      setCurrentUser(login)
-      setAuthOk(true)
-      setTab(getFirstAllowedTab(permissions))
-    } else {
+  async function connect() {
+    const searchedPseudo = login.trim()
+    const enteredCode = pass.trim()
+
+    console.log("[admin-login] pseudo recherché:", searchedPseudo)
+
+    if (!searchedPseudo || !enteredCode) {
+      console.log("[admin-login] admin trouvé:", false)
+      console.log("[admin-login] code valide:", false)
       alert("Accès refusé")
+      return
     }
+
+    if (searchedPseudo.toLowerCase() === "admin" && enteredCode === "Armory781228") {
+      console.log("[admin-login] admin trouvé:", true)
+      console.log("[admin-login] code valide:", true)
+      startAdminSession({
+        pseudo: "admin",
+        role: "owner",
+        permissions: permissionsForRole("owner"),
+      })
+      return
+    }
+
+    const found = await findAdminByPseudo(searchedPseudo)
+    console.log("[admin-login] admin trouvé:", Boolean(found))
+
+    const codeValid = Boolean(found && found.code === enteredCode)
+    console.log("[admin-login] code valide:", codeValid)
+
+    if (!found || !codeValid || found.active === false) {
+      alert("Accès refusé")
+      return
+    }
+
+    const role = normalizeRole(found.role)
+    const permissions = normalizePermissions(found.permissions, role)
+    await ensureAdminDocumentId(found)
+
+    startAdminSession({
+      pseudo: found.pseudo,
+      role: found.role || "admin",
+      permissions,
+    })
+  }
+
+  function startAdminSession(admin: { pseudo: string; role: string; permissions: StaffPermissionMap }) {
+    const role = normalizeRole(admin.role)
+    localStorage.setItem("admin-auth", "true")
+    localStorage.setItem("admin-user", admin.pseudo)
+    localStorage.setItem("admin-role", admin.role || "admin")
+    localStorage.setItem("admin-permissions", JSON.stringify(admin.permissions))
+    setUserRole(role)
+    setCurrentPermissions(admin.permissions)
+    setCurrentUser(admin.pseudo)
+    setAuthOk(true)
+    setTab(getFirstAllowedTab(admin.permissions))
   }
 
   function logout() {
@@ -472,17 +513,21 @@ export default function AdminPage() {
 
   async function saveAdminUser() {
     if (!currentPermissions.access) return alert("Accès refusé")
-    if (!newPseudo || !newCode) return
-    await addDoc(collection(db, "admins"), {
-      pseudo: newPseudo,
-      code: newCode,
+    const pseudo = newPseudo.trim()
+    const code = newCode.trim()
+    if (!pseudo || !code) return
+    await setDoc(doc(db, "admins", pseudo), {
+      pseudo,
+      code,
       role: newRole,
+      active: true,
+      createdAt: serverTimestamp(),
       permissions: permissionsForRole(newRole),
     })
     setNewPseudo("")
     setNewCode("")
     setNewRole("moderator")
-    await logAction("Staff ajouté", newPseudo, { role: newRole }, "success")
+    await logAction("Staff ajouté", pseudo, { role: newRole }, "success")
     loadAll()
   }
 
@@ -1130,6 +1175,93 @@ export default function AdminPage() {
       </section>
     </main>
   )
+}
+
+type AdminDocument = {
+  id: string
+  pseudo: string
+  code?: string
+  role: string
+  active: boolean
+  permissions?: unknown
+  createdAt?: unknown
+}
+
+async function findAdminByPseudo(pseudo: string): Promise<AdminDocument | null> {
+  const directSnap = await getDoc(doc(db, "admins", pseudo))
+  if (directSnap.exists()) {
+    return normalizeAdminDocument(directSnap.id, directSnap.data())
+  }
+
+  const normalizedPseudo = normalizeAdminLookupKey(pseudo)
+  const snap = await getDocs(collection(db, "admins"))
+  await migrateLegacyAdmins(snap.docs)
+
+  const matched = snap.docs.find((entry) => {
+    const data: any = entry.data()
+    return normalizeAdminLookupKey(data.pseudo || entry.id) === normalizedPseudo
+  })
+
+  if (!matched) return null
+  return normalizeAdminDocument(matched.id, matched.data())
+}
+
+async function migrateLegacyAdmins(entries: any[]) {
+  await Promise.all(entries.map(async (entry) => {
+    try {
+      const data: any = entry.data()
+      const pseudo = String(data.pseudo || "").trim()
+
+      if (!pseudo || entry.id === pseudo) return
+
+      const targetRef = doc(db, "admins", pseudo)
+      const targetSnap = await getDoc(targetRef)
+      const payload = {
+        ...data,
+        pseudo,
+        active: data.active === false ? false : true,
+        createdAt: data.createdAt || serverTimestamp(),
+      }
+
+      await setDoc(targetRef, payload, { merge: targetSnap.exists() })
+      await deleteDoc(doc(db, "admins", entry.id))
+      console.log("[admin-migration] admin migré:", entry.id, "=>", `admins/${pseudo}`)
+    } catch (error) {
+      console.log("[admin-migration] migration impossible:", entry.id, error)
+    }
+  }))
+}
+
+async function ensureAdminDocumentId(admin: AdminDocument) {
+  if (!admin.pseudo || admin.id === admin.pseudo) return
+
+  await setDoc(doc(db, "admins", admin.pseudo), {
+    pseudo: admin.pseudo,
+    code: admin.code || "",
+    role: admin.role || "admin",
+    active: admin.active !== false,
+    permissions: admin.permissions || permissionsForRole(normalizeRole(admin.role)),
+    createdAt: admin.createdAt || serverTimestamp(),
+  }, { merge: true })
+
+  await deleteDoc(doc(db, "admins", admin.id))
+  console.log("[admin-migration] admin migré:", admin.id, "=>", `admins/${admin.pseudo}`)
+}
+
+function normalizeAdminDocument(id: string, data: any): AdminDocument {
+  return {
+    id,
+    pseudo: String(data.pseudo || id).trim(),
+    code: typeof data.code === "string" ? data.code : undefined,
+    role: String(data.role || "admin"),
+    active: data.active === false ? false : true,
+    permissions: data.permissions,
+    createdAt: data.createdAt,
+  }
+}
+
+function normalizeAdminLookupKey(value: string) {
+  return value.trim().toLowerCase()
 }
 
 function sortBuybacks(a: any, b: any, items: any[]) {
